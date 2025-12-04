@@ -2,7 +2,10 @@ use clap::Parser;
 use regex::Regex;
 use rmcp::{
     ServerHandler, ServiceExt,
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    handler::server::{
+        router::tool::ToolRouter,
+        wrapper::{Json, Parameters},
+    },
     model::*,
     tool, tool_handler, tool_router,
     transport::{
@@ -21,7 +24,7 @@ use std::sync::Arc;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 /// Represents a task found in a markdown file
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct Task {
     content: String,
     status: String,
@@ -564,6 +567,12 @@ struct TaskSearchService {
     base_path: PathBuf,
 }
 
+/// Response for the search_tasks tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct TaskSearchResponse {
+    tasks: Vec<Task>,
+}
+
 /// Parameters for the search_tasks tool
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SearchTasksRequest {
@@ -610,7 +619,7 @@ impl TaskSearchService {
     async fn search_tasks(
         &self,
         Parameters(request): Parameters<SearchTasksRequest>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<Json<TaskSearchResponse>, ErrorData> {
         // Create task extractor
         let extractor = TaskExtractor::new();
 
@@ -637,14 +646,10 @@ impl TaskSearchService {
         };
         let filtered_tasks = filter_tasks_with_options(tasks, &filter_options);
 
-        // Convert to JSON
-        let json = serde_json::to_string_pretty(&filtered_tasks).map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize tasks: {}", e)),
-            data: None,
-        })?;
-
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        // Return structured JSON wrapped in response object
+        Ok(Json(TaskSearchResponse {
+            tasks: filtered_tasks,
+        }))
     }
 }
 
@@ -683,7 +688,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If stdio MCP mode is enabled, start the stdio MCP server
     if args.mcp_stdio {
         let service = TaskSearchService::new(base_path).serve(stdio()).await?;
-        service.waiting().await?;
+
+        // Wait for either service completion or Ctrl-C
+        tokio::select! {
+            result = service.waiting() => {
+                result?;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                eprintln!("Received Ctrl-C, shutting down...");
+            }
+        }
+
         return Ok(());
     }
 

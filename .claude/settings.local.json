@@ -12,7 +12,9 @@
       "Bash(cargo doc:*)",
       "Bash(cat:*)",
       "Bash(cargo tree:*)",
-      "Bash(timeout 3 cargo run:*)"
+      "Bash(timeout 3 cargo run:*)",
+      "Bash(find:*)",
+      "Bash(timeout 2 cargo run:*)"
     ],
     "deny": [],
     "ask": []
