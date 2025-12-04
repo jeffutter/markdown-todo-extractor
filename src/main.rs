@@ -697,7 +697,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         let router = axum::Router::new().nest_service("/mcp", service);
-        let addr = format!("127.0.0.1:{}", args.port);
+        let addr = format!("0.0.0.0:{}", args.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
 
         eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
