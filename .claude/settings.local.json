@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(cargo build:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:www.shuttle.dev)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

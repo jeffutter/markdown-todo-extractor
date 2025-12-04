@@ -3,6 +3,14 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::future::Future;
+use rmcp::{
+    handler::server::{router::tool::ToolRouter, tool::Parameters},
+    model::{ErrorData as McpError, *},
+    schemars, tool, tool_handler, tool_router, ServerHandler, ServiceExt,
+    transport::stdio,
+};
+use std::borrow::Cow;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -374,7 +382,11 @@ impl TaskExtractor {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Path to file or folder to scan
+    /// Start MCP server on stdin/stdout
+    #[arg(long)]
+    mcp: bool,
+
+    /// Path to file or folder to scan (required in both MCP and CLI modes)
     path: PathBuf,
 
     /// Filter by task status (incomplete, completed, cancelled)
@@ -414,26 +426,40 @@ struct Args {
     exclude_tags: Option<Vec<String>>,
 }
 
-fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
+/// Filter options for task search
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FilterOptions {
+    status: Option<String>,
+    due_on: Option<String>,
+    due_before: Option<String>,
+    due_after: Option<String>,
+    completed_on: Option<String>,
+    completed_before: Option<String>,
+    completed_after: Option<String>,
+    tags: Option<Vec<String>>,
+    exclude_tags: Option<Vec<String>>,
+}
+
+fn filter_tasks_with_options(tasks: Vec<Task>, options: &FilterOptions) -> Vec<Task> {
     tasks
         .into_iter()
         .filter(|task| {
             // Filter by status
-            if let Some(ref status) = args.status {
+            if let Some(ref status) = options.status {
                 if &task.status != status {
                     return false;
                 }
             }
 
             // Filter by exact due date
-            if let Some(ref due_on) = args.due_on {
+            if let Some(ref due_on) = options.due_on {
                 if task.due_date.as_ref() != Some(due_on) {
                     return false;
                 }
             }
 
             // Filter by due before date
-            if let Some(ref due_before) = args.due_before {
+            if let Some(ref due_before) = options.due_before {
                 if let Some(ref due_date) = task.due_date {
                     if due_date >= due_before {
                         return false;
@@ -444,7 +470,7 @@ fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
             }
 
             // Filter by due after date
-            if let Some(ref due_after) = args.due_after {
+            if let Some(ref due_after) = options.due_after {
                 if let Some(ref due_date) = task.due_date {
                     if due_date <= due_after {
                         return false;
@@ -455,14 +481,14 @@ fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
             }
 
             // Filter by exact completed date
-            if let Some(ref completed_on) = args.completed_on {
+            if let Some(ref completed_on) = options.completed_on {
                 if task.completed_date.as_ref() != Some(completed_on) {
                     return false;
                 }
             }
 
             // Filter by completed before date
-            if let Some(ref completed_before) = args.completed_before {
+            if let Some(ref completed_before) = options.completed_before {
                 if let Some(ref completed_date) = task.completed_date {
                     if completed_date >= completed_before {
                         return false;
@@ -473,7 +499,7 @@ fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
             }
 
             // Filter by completed after date
-            if let Some(ref completed_after) = args.completed_after {
+            if let Some(ref completed_after) = options.completed_after {
                 if let Some(ref completed_date) = task.completed_date {
                     if completed_date <= completed_after {
                         return false;
@@ -484,14 +510,14 @@ fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
             }
 
             // Filter by tags (must have all specified tags)
-            if let Some(ref tags) = args.tags {
+            if let Some(ref tags) = options.tags {
                 if !tags.iter().all(|tag| task.tags.contains(tag)) {
                     return false;
                 }
             }
 
             // Filter by excluded tags (must not have any specified tags)
-            if let Some(ref exclude_tags) = args.exclude_tags {
+            if let Some(ref exclude_tags) = options.exclude_tags {
                 if exclude_tags.iter().any(|tag| task.tags.contains(tag)) {
                     return false;
                 }
@@ -502,9 +528,135 @@ fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
         .collect()
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn filter_tasks(tasks: Vec<Task>, args: &Args) -> Vec<Task> {
+    let options = FilterOptions {
+        status: args.status.clone(),
+        due_on: args.due_on.clone(),
+        due_before: args.due_before.clone(),
+        due_after: args.due_after.clone(),
+        completed_on: args.completed_on.clone(),
+        completed_before: args.completed_before.clone(),
+        completed_after: args.completed_after.clone(),
+        tags: args.tags.clone(),
+        exclude_tags: args.exclude_tags.clone(),
+    };
+    filter_tasks_with_options(tasks, &options)
+}
+
+/// MCP Service for task searching
+#[derive(Debug, Clone)]
+struct TaskSearchService {
+    tool_router: ToolRouter<TaskSearchService>,
+    base_path: PathBuf,
+}
+
+/// Parameters for the search_tasks tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SearchTasksRequest {
+    #[schemars(description = "Filter by task status (incomplete, completed, cancelled)")]
+    status: Option<String>,
+
+    #[schemars(description = "Filter by exact due date (YYYY-MM-DD)")]
+    due_on: Option<String>,
+
+    #[schemars(description = "Filter tasks due before date (YYYY-MM-DD)")]
+    due_before: Option<String>,
+
+    #[schemars(description = "Filter tasks due after date (YYYY-MM-DD)")]
+    due_after: Option<String>,
+
+    #[schemars(description = "Filter tasks completed on a specific date (YYYY-MM-DD)")]
+    completed_on: Option<String>,
+
+    #[schemars(description = "Filter tasks completed before a specific date (YYYY-MM-DD)")]
+    completed_before: Option<String>,
+
+    #[schemars(description = "Filter tasks completed after a specific date (YYYY-MM-DD)")]
+    completed_after: Option<String>,
+
+    #[schemars(description = "Filter by tags (must have all specified tags)")]
+    tags: Option<Vec<String>>,
+
+    #[schemars(description = "Exclude tasks with these tags (must not have any)")]
+    exclude_tags: Option<Vec<String>>,
+}
+
+#[tool_router]
+impl TaskSearchService {
+    fn new(base_path: PathBuf) -> Self {
+        Self {
+            tool_router: Self::tool_router(),
+            base_path,
+        }
+    }
+
+    #[tool(description = "Search for tasks in Markdown files with optional filtering by status, dates, and tags")]
+    async fn search_tasks(
+        &self,
+        Parameters(request): Parameters<SearchTasksRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        // Create task extractor
+        let extractor = TaskExtractor::new();
+
+        // Extract tasks from the base path
+        let tasks = extractor.extract_tasks(&self.base_path).map_err(|e| McpError {
+            code: ErrorCode(-32603),
+            message: Cow::from(format!("Failed to extract tasks: {}", e)),
+            data: None,
+        })?;
+
+        // Apply filters
+        let filter_options = FilterOptions {
+            status: request.status,
+            due_on: request.due_on,
+            due_before: request.due_before,
+            due_after: request.due_after,
+            completed_on: request.completed_on,
+            completed_before: request.completed_before,
+            completed_after: request.completed_after,
+            tags: request.tags,
+            exclude_tags: request.exclude_tags,
+        };
+        let filtered_tasks = filter_tasks_with_options(tasks, &filter_options);
+
+        // Convert to JSON
+        let json = serde_json::to_string_pretty(&filtered_tasks).map_err(|e| McpError {
+            code: ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize tasks: {}", e)),
+            data: None,
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for TaskSearchService {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            protocol_version: ProtocolVersion::V_2024_11_05,
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            server_info: Implementation::from_build_env(),
+            instructions: Some(
+                "A Markdown task extraction service that searches Markdown files for todo items and extracts metadata including tags, dates, priorities, and completion status. Supports filtering by status, due dates, completion dates, and tags."
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    // If MCP mode is enabled, start the MCP server
+    if args.mcp {
+        let service = TaskSearchService::new(args.path).serve(stdio()).await?;
+        service.waiting().await?;
+        return Ok(());
+    }
+
+    // Normal CLI mode
     // Create task extractor
     let extractor = TaskExtractor::new();
 
