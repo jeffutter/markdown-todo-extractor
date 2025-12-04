@@ -1,17 +1,21 @@
 use clap::Parser;
 use regex::Regex;
 use rmcp::{
+    ServerHandler, ServiceExt,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
     tool, tool_handler, tool_router,
-    transport::stdio,
-    ServerHandler, ServiceExt,
+    transport::{
+        stdio,
+        streamable_http_server::{StreamableHttpService, session::local::LocalSessionManager},
+    },
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -385,10 +389,19 @@ impl TaskExtractor {
 struct Args {
     /// Start MCP server on stdin/stdout
     #[arg(long)]
-    mcp: bool,
+    mcp_stdio: bool,
 
-    /// Path to file or folder to scan (required in both MCP and CLI modes)
-    path: PathBuf,
+    /// Start MCP server on HTTP (default port: 8000)
+    #[arg(long)]
+    mcp_http: bool,
+
+    /// Port for HTTP MCP server (requires --mcp-http)
+    #[arg(long, default_value = "8000")]
+    port: u16,
+
+    /// Path to file or folder to scan (required unless in MCP server mode)
+    #[arg(required_unless_present_any = ["mcp_stdio", "mcp_http"])]
+    path: Option<PathBuf>,
 
     /// Filter by task status (incomplete, completed, cancelled)
     #[arg(long)]
@@ -446,17 +459,17 @@ fn filter_tasks_with_options(tasks: Vec<Task>, options: &FilterOptions) -> Vec<T
         .into_iter()
         .filter(|task| {
             // Filter by status
-            if let Some(ref status) = options.status {
-                if &task.status != status {
-                    return false;
-                }
+            if let Some(ref status) = options.status
+                && &task.status != status
+            {
+                return false;
             }
 
             // Filter by exact due date
-            if let Some(ref due_on) = options.due_on {
-                if task.due_date.as_ref() != Some(due_on) {
-                    return false;
-                }
+            if let Some(ref due_on) = options.due_on
+                && task.due_date.as_ref() != Some(due_on)
+            {
+                return false;
             }
 
             // Filter by due before date
@@ -482,10 +495,10 @@ fn filter_tasks_with_options(tasks: Vec<Task>, options: &FilterOptions) -> Vec<T
             }
 
             // Filter by exact completed date
-            if let Some(ref completed_on) = options.completed_on {
-                if task.completed_date.as_ref() != Some(completed_on) {
-                    return false;
-                }
+            if let Some(ref completed_on) = options.completed_on
+                && task.completed_date.as_ref() != Some(completed_on)
+            {
+                return false;
             }
 
             // Filter by completed before date
@@ -511,17 +524,17 @@ fn filter_tasks_with_options(tasks: Vec<Task>, options: &FilterOptions) -> Vec<T
             }
 
             // Filter by tags (must have all specified tags)
-            if let Some(ref tags) = options.tags {
-                if !tags.iter().all(|tag| task.tags.contains(tag)) {
-                    return false;
-                }
+            if let Some(ref tags) = options.tags
+                && !tags.iter().all(|tag| task.tags.contains(tag))
+            {
+                return false;
             }
 
             // Filter by excluded tags (must not have any specified tags)
-            if let Some(ref exclude_tags) = options.exclude_tags {
-                if exclude_tags.iter().any(|tag| task.tags.contains(tag)) {
-                    return false;
-                }
+            if let Some(ref exclude_tags) = options.exclude_tags
+                && exclude_tags.iter().any(|tag| task.tags.contains(tag))
+            {
+                return false;
             }
 
             true
@@ -654,10 +667,47 @@ impl ServerHandler for TaskSearchService {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // If MCP mode is enabled, start the MCP server
-    if args.mcp {
-        let service = TaskSearchService::new(args.path).serve(stdio()).await?;
+    // Check that only one MCP mode is selected
+    if args.mcp_stdio && args.mcp_http {
+        eprintln!("Error: Cannot use both --mcp-stdio and --mcp-http at the same time");
+        std::process::exit(1);
+    }
+
+    // Get the path for MCP modes
+    let base_path = if args.mcp_stdio || args.mcp_http {
+        args.path.clone().unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        args.path.clone().expect("Path is required in CLI mode")
+    };
+
+    // If stdio MCP mode is enabled, start the stdio MCP server
+    if args.mcp_stdio {
+        let service = TaskSearchService::new(base_path).serve(stdio()).await?;
         service.waiting().await?;
+        return Ok(());
+    }
+
+    // If HTTP MCP mode is enabled, start the HTTP MCP server
+    if args.mcp_http {
+        let base_path_clone = base_path.clone();
+        let service = StreamableHttpService::new(
+            move || Ok(TaskSearchService::new(base_path_clone.clone())),
+            Arc::new(LocalSessionManager::default()),
+            Default::default(),
+        );
+
+        let router = axum::Router::new().nest_service("/mcp", service);
+        let addr = format!("127.0.0.1:{}", args.port);
+        let listener = tokio::net::TcpListener::bind(&addr).await?;
+
+        eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
+
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                tokio::signal::ctrl_c().await.ok();
+            })
+            .await?;
+
         return Ok(());
     }
 
@@ -666,7 +716,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let extractor = TaskExtractor::new();
 
     // Extract tasks from the given path
-    let tasks = extractor.extract_tasks(&args.path)?;
+    let tasks = extractor.extract_tasks(&base_path)?;
 
     // Apply filters
     let filtered_tasks = filter_tasks(tasks, &args);
