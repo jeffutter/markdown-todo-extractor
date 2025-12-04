@@ -1,16 +1,17 @@
 use clap::Parser;
 use regex::Regex;
+use rmcp::{
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::*,
+    tool, tool_handler, tool_router,
+    transport::stdio,
+    ServerHandler, ServiceExt,
+};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::future::Future;
-use rmcp::{
-    handler::server::{router::tool::ToolRouter, tool::Parameters},
-    model::{ErrorData as McpError, *},
-    schemars, tool, tool_handler, tool_router, ServerHandler, ServiceExt,
-    transport::stdio,
-};
-use std::borrow::Cow;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -551,7 +552,7 @@ struct TaskSearchService {
 }
 
 /// Parameters for the search_tasks tool
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct SearchTasksRequest {
     #[schemars(description = "Filter by task status (incomplete, completed, cancelled)")]
     status: Option<String>,
@@ -590,20 +591,24 @@ impl TaskSearchService {
         }
     }
 
-    #[tool(description = "Search for tasks in Markdown files with optional filtering by status, dates, and tags")]
+    #[tool(
+        description = "Search for tasks in Markdown files with optional filtering by status, dates, and tags"
+    )]
     async fn search_tasks(
         &self,
         Parameters(request): Parameters<SearchTasksRequest>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<CallToolResult, ErrorData> {
         // Create task extractor
         let extractor = TaskExtractor::new();
 
         // Extract tasks from the base path
-        let tasks = extractor.extract_tasks(&self.base_path).map_err(|e| McpError {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to extract tasks: {}", e)),
-            data: None,
-        })?;
+        let tasks = extractor
+            .extract_tasks(&self.base_path)
+            .map_err(|e| ErrorData {
+                code: ErrorCode(-32603),
+                message: Cow::from(format!("Failed to extract tasks: {}", e)),
+                data: None,
+            })?;
 
         // Apply filters
         let filter_options = FilterOptions {
@@ -620,7 +625,7 @@ impl TaskSearchService {
         let filtered_tasks = filter_tasks_with_options(tasks, &filter_options);
 
         // Convert to JSON
-        let json = serde_json::to_string_pretty(&filtered_tasks).map_err(|e| McpError {
+        let json = serde_json::to_string_pretty(&filtered_tasks).map_err(|e| ErrorData {
             code: ErrorCode(-32603),
             message: Cow::from(format!("Failed to serialize tasks: {}", e)),
             data: None,
