@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Rust CLI tool that extracts todo items from Markdown files in Obsidian vaults. It parses task checkboxes, extracts metadata (tags, dates, priorities), and outputs structured JSON. There is a Python reference implementation in `python_version/` that demonstrates the expected parsing behavior.
+This is a Rust CLI tool that extracts todo items from Markdown files in Obsidian vaults. It parses task checkboxes, extracts metadata (tags, dates, priorities), and outputs structured JSON.
 
 ## Build and Development Commands
 
@@ -53,14 +53,6 @@ The `TaskExtractor` holds compiled regex patterns that are reused across all fil
 - **Cleaning patterns**: Remove metadata from content to get clean task descriptions
 
 The cleaning step is critical: content is extracted first with all metadata intact, then cleaned separately after metadata extraction to avoid losing information.
-
-## Python Reference Implementation
-
-The `python_version/` directory contains the original implementation. When modifying parsing logic, ensure behavior matches the Python version:
-
-- `python_version/task_extractor/obsidian_task_extractor.py`: Core extraction logic
-- `python_version/task_extractor/task.py`: Task data structure
-- Compare regex patterns, date formats, and sub-item detection carefully
 
 ## Supported Metadata Formats
 
