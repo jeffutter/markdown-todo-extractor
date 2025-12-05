@@ -219,29 +219,25 @@ impl TaskExtractor {
         file_path: &Path,
     ) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(file_path)?;
-        let lines: Vec<&str> = content.lines().collect();
         let mut tasks = Vec::new();
 
-        let mut i = 0;
-        while i < lines.len() {
-            let line = lines[i];
-            if let Some(mut task) = self.parse_task_line(line, file_path, i + 1) {
-                // Look for sub-items on subsequent lines
-                i += 1;
-                while i < lines.len() {
-                    let next_line = lines[i];
+        // Use iterator instead of collecting into Vec
+        let mut lines = content.lines().enumerate().peekable();
+
+        while let Some((line_num, line)) = lines.next() {
+            if let Some(mut task) = self.parse_task_line(line, file_path, line_num + 1) {
+                // Look ahead for sub-items on subsequent lines
+                while let Some(&(_, next_line)) = lines.peek() {
                     if self.is_sub_item(next_line, &task.raw_line) {
                         if let Some(sub_item) = self.parse_sub_item(next_line) {
                             task.sub_items.push(sub_item);
                         }
-                        i += 1;
+                        lines.next(); // Consume the sub-item line
                     } else {
                         break;
                     }
                 }
                 tasks.push(task);
-            } else {
-                i += 1;
             }
         }
 
