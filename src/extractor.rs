@@ -200,10 +200,10 @@ impl TaskExtractor {
         let stripped = line.trim();
 
         // Handle checkbox sub-items
-        if stripped.starts_with("- [") {
-            if let Some(caps) = self.checkbox_pattern.captures(stripped) {
-                return Some(caps.get(1).unwrap().as_str().trim().to_string());
-            }
+        if stripped.starts_with("- [")
+            && let Some(caps) = self.checkbox_pattern.captures(stripped)
+        {
+            return Some(caps.get(1).unwrap().as_str().trim().to_string());
         }
 
         // Handle regular list items
@@ -263,13 +263,9 @@ impl TaskExtractor {
         }
     }
 
-    fn extract_tasks_from_dir(
-        &self,
-        dir: &Path,
-    ) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
+    fn extract_tasks_from_dir(&self, dir: &Path) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
         // Collect all directory entries
-        let entries: Vec<_> = fs::read_dir(dir)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let entries: Vec<_> = fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
 
         // Process entries in parallel
         let tasks: Vec<Task> = entries
