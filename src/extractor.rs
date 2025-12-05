@@ -33,6 +33,13 @@ pub struct TaskExtractor {
     priority_pattern: Regex,
     created_patterns: Vec<Regex>,
     completion_patterns: Vec<Regex>,
+    // Cleaning patterns (moved from clean_content())
+    timestamp_pattern: Regex,
+    priority_emoji_pattern: Regex,
+    priority_text_pattern: Regex,
+    whitespace_pattern: Regex,
+    // Sub-item pattern (moved from parse_sub_item())
+    checkbox_pattern: Regex,
 }
 
 impl TaskExtractor {
@@ -57,6 +64,13 @@ impl TaskExtractor {
                 Regex::new(r"✅\s*(\d{4}-\d{2}-\d{2})").unwrap(),
                 Regex::new(r"completed:\s*(\d{4}-\d{2}-\d{2})").unwrap(),
             ],
+            // Cleaning patterns
+            timestamp_pattern: Regex::new(r"^\d{2}:\d{2} ").unwrap(),
+            priority_emoji_pattern: Regex::new(r"[⏫🔼🔽⏬]").unwrap(),
+            priority_text_pattern: Regex::new(r"(?i)priority:\s*(high|medium|low)").unwrap(),
+            whitespace_pattern: Regex::new(r"\s+").unwrap(),
+            // Sub-item pattern
+            checkbox_pattern: Regex::new(r"^-\s*\[.\]\s*(.+)$").unwrap(),
         }
     }
 
@@ -120,15 +134,11 @@ impl TaskExtractor {
         }
 
         // Remove timestamp prefix
-        let timestamp_pattern = Regex::new(r"^\d{2}:\d{2} ").unwrap();
-        cleaned = timestamp_pattern.replace_all(&cleaned, " ").to_string();
+        cleaned = self.timestamp_pattern.replace_all(&cleaned, " ").to_string();
 
         // Remove priority indicators
-        let priority_emoji_pattern = Regex::new(r"[⏫🔼🔽⏬]").unwrap();
-        cleaned = priority_emoji_pattern.replace_all(&cleaned, "").to_string();
-
-        let priority_text_pattern = Regex::new(r"(?i)priority:\s*(high|medium|low)").unwrap();
-        cleaned = priority_text_pattern.replace_all(&cleaned, "").to_string();
+        cleaned = self.priority_emoji_pattern.replace_all(&cleaned, "").to_string();
+        cleaned = self.priority_text_pattern.replace_all(&cleaned, "").to_string();
 
         // Remove created date patterns
         for pattern in &self.created_patterns {
@@ -141,8 +151,7 @@ impl TaskExtractor {
         }
 
         // Clean up extra whitespace
-        let whitespace_pattern = Regex::new(r"\s+").unwrap();
-        cleaned = whitespace_pattern.replace_all(&cleaned, " ").to_string();
+        cleaned = self.whitespace_pattern.replace_all(&cleaned, " ").to_string();
         cleaned = cleaned.trim().to_string();
 
         cleaned
@@ -176,8 +185,7 @@ impl TaskExtractor {
 
         // Handle checkbox sub-items
         if stripped.starts_with("- [") {
-            let checkbox_pattern = Regex::new(r"^-\s*\[.\]\s*(.+)$").unwrap();
-            if let Some(caps) = checkbox_pattern.captures(stripped) {
+            if let Some(caps) = self.checkbox_pattern.captures(stripped) {
                 return Some(caps.get(1).unwrap().as_str().trim().to_string());
             }
         }

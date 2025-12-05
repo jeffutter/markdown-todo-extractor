@@ -13,12 +13,14 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// MCP Service for task searching
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TaskSearchService {
     tool_router: ToolRouter<TaskSearchService>,
     base_path: PathBuf,
+    extractor: Arc<TaskExtractor>,
 }
 
 /// Response for the search_tasks tool
@@ -64,6 +66,7 @@ impl TaskSearchService {
         Self {
             tool_router: Self::tool_router(),
             base_path,
+            extractor: Arc::new(TaskExtractor::new()),
         }
     }
 
@@ -74,11 +77,9 @@ impl TaskSearchService {
         &self,
         Parameters(request): Parameters<SearchTasksRequest>,
     ) -> Result<Json<TaskSearchResponse>, ErrorData> {
-        // Create task extractor
-        let extractor = TaskExtractor::new();
-
-        // Extract tasks from the base path
-        let tasks = extractor
+        // Extract tasks from the base path using the pre-compiled extractor
+        let tasks = self
+            .extractor
             .extract_tasks(&self.base_path)
             .map_err(|e| ErrorData {
                 code: ErrorCode(-32603),
