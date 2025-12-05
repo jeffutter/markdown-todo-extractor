@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -233,45 +234,63 @@ impl TaskExtractor {
     }
 
     pub fn extract_tasks(&self, path: &Path) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
-        let mut all_tasks = Vec::new();
-
         if path.is_file() {
             // Single file
             if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                all_tasks.extend(self.extract_tasks_from_file(path)?);
+                self.extract_tasks_from_file(path)
+            } else {
+                Ok(Vec::new())
             }
         } else if path.is_dir() {
-            // Directory - recursively find all .md files
-            self.extract_tasks_from_dir(path, &mut all_tasks)?;
+            // Directory - recursively find all .md files in parallel
+            self.extract_tasks_from_dir(path)
         } else {
-            return Err(format!("Path does not exist: {}", path.display()).into());
+            Err(format!("Path does not exist: {}", path.display()).into())
         }
-
-        Ok(all_tasks)
     }
 
     fn extract_tasks_from_dir(
         &self,
         dir: &Path,
-        tasks: &mut Vec<Task>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+    ) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
+        // Collect all directory entries
+        let entries: Vec<_> = fs::read_dir(dir)?
+            .collect::<Result<Vec<_>, _>>()?;
 
-            if path.is_file() {
-                if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                    match self.extract_tasks_from_file(&path) {
-                        Ok(file_tasks) => tasks.extend(file_tasks),
-                        Err(e) => eprintln!("Warning: Could not read {:?}: {}", path, e),
+        // Process entries in parallel
+        let tasks: Vec<Task> = entries
+            .par_iter()
+            .flat_map(|entry| {
+                let path = entry.path();
+
+                if path.is_file() {
+                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                        match self.extract_tasks_from_file(&path) {
+                            Ok(file_tasks) => file_tasks,
+                            Err(e) => {
+                                eprintln!("Warning: Could not read {:?}: {}", path, e);
+                                Vec::new()
+                            }
+                        }
+                    } else {
+                        Vec::new()
                     }
+                } else if path.is_dir() {
+                    // Recursively process subdirectories
+                    match self.extract_tasks_from_dir(&path) {
+                        Ok(dir_tasks) => dir_tasks,
+                        Err(e) => {
+                            eprintln!("Warning: Could not read directory {:?}: {}", path, e);
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    Vec::new()
                 }
-            } else if path.is_dir() {
-                self.extract_tasks_from_dir(&path, tasks)?;
-            }
-        }
+            })
+            .collect();
 
-        Ok(())
+        Ok(tasks)
     }
 
     fn parse_task_line(&self, line: &str, file_path: &Path, line_number: usize) -> Option<Task> {
