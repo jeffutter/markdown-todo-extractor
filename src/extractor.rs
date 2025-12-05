@@ -93,19 +93,17 @@ impl TaskExtractor {
 
     fn extract_priority(&self, content: &str) -> Option<String> {
         if let Some(caps) = self.priority_pattern.captures(content) {
-            if content.contains("⏫") {
-                return Some("urgent".to_string());
-            } else if content.contains("🔼") {
-                return Some("high".to_string());
-            } else if content.contains("🔽") {
-                return Some("low".to_string());
-            } else if content.contains("⏬") {
-                return Some("lowest".to_string());
-            } else if let Some(priority_text) = caps.get(1) {
-                return Some(priority_text.as_str().to_lowercase());
+            let matched = caps.get(0).unwrap().as_str();
+            match matched {
+                "⏫" => Some("urgent".to_string()),
+                "🔼" => Some("high".to_string()),
+                "🔽" => Some("low".to_string()),
+                "⏬" => Some("lowest".to_string()),
+                _ => caps.get(1).map(|m| m.as_str().to_lowercase()),
             }
+        } else {
+            None
         }
-        None
     }
 
     fn extract_created_date(&self, content: &str) -> Option<String> {
@@ -127,35 +125,52 @@ impl TaskExtractor {
     }
 
     fn clean_content(&self, content: &str) -> String {
-        let mut cleaned = content.to_string();
+        use std::borrow::Cow;
+
+        // Start with borrowed content
+        let mut cleaned = Cow::Borrowed(content);
 
         // Remove due date patterns
         for pattern in &self.due_date_patterns {
-            cleaned = pattern.replace_all(&cleaned, "").to_string();
+            if let Cow::Owned(s) = pattern.replace_all(&cleaned, "") {
+                cleaned = Cow::Owned(s);
+            }
         }
 
         // Remove timestamp prefix
-        cleaned = self.timestamp_pattern.replace_all(&cleaned, " ").to_string();
+        if let Cow::Owned(s) = self.timestamp_pattern.replace_all(&cleaned, " ") {
+            cleaned = Cow::Owned(s);
+        }
 
         // Remove priority indicators
-        cleaned = self.priority_emoji_pattern.replace_all(&cleaned, "").to_string();
-        cleaned = self.priority_text_pattern.replace_all(&cleaned, "").to_string();
+        if let Cow::Owned(s) = self.priority_emoji_pattern.replace_all(&cleaned, "") {
+            cleaned = Cow::Owned(s);
+        }
+        if let Cow::Owned(s) = self.priority_text_pattern.replace_all(&cleaned, "") {
+            cleaned = Cow::Owned(s);
+        }
 
         // Remove created date patterns
         for pattern in &self.created_patterns {
-            cleaned = pattern.replace_all(&cleaned, "").to_string();
+            if let Cow::Owned(s) = pattern.replace_all(&cleaned, "") {
+                cleaned = Cow::Owned(s);
+            }
         }
 
         // Remove completed date patterns
         for pattern in &self.completion_patterns {
-            cleaned = pattern.replace_all(&cleaned, "").to_string();
+            if let Cow::Owned(s) = pattern.replace_all(&cleaned, "") {
+                cleaned = Cow::Owned(s);
+            }
         }
 
         // Clean up extra whitespace
-        cleaned = self.whitespace_pattern.replace_all(&cleaned, " ").to_string();
-        cleaned = cleaned.trim().to_string();
+        if let Cow::Owned(s) = self.whitespace_pattern.replace_all(&cleaned, " ") {
+            cleaned = Cow::Owned(s);
+        }
 
-        cleaned
+        // Final trim and convert to owned String
+        cleaned.trim().to_string()
     }
 
     fn is_sub_item(&self, line: &str, parent_line: &str) -> bool {

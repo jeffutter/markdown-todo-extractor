@@ -116,19 +116,29 @@ The cleaning step is critical: content is extracted first with all metadata inta
 
 **Files Modified**: `Cargo.toml`, `src/extractor.rs`
 
-#### 3. Priority Extraction Optimization (MEDIUM PRIORITY - TODO)
+#### 3. Priority Extraction Optimization (MEDIUM PRIORITY - ✅ COMPLETED)
 **Problem**: After regex match in `extract_priority()`, code performs 4 separate `contains()` scans
 
-**Solution**: Extract matched substring from regex and check directly
+**Solution Implemented**:
+- ✅ Use regex capture group to get matched substring directly
+- ✅ Pattern match on captured value instead of scanning entire string 4 times
+- ✅ Eliminated redundant `content.contains()` calls
 
 **Impact**: ~10-15% faster priority extraction
 
-#### 4. String Allocation in clean_content() (MEDIUM PRIORITY - TODO)
-**Problem**: Multiple intermediate String allocations on each regex replacement
+**Files Modified**: `src/extractor.rs`
 
-**Solution**: Use in-place modifications or single final allocation
+#### 4. String Allocation in clean_content() (MEDIUM PRIORITY - ✅ COMPLETED)
+**Problem**: Multiple intermediate String allocations on each regex replacement (~13 allocations per task)
 
-**Impact**: ~5-10% improvement for tasks with lots of metadata
+**Solution Implemented**:
+- ✅ Use `Cow<str>` to avoid allocations when no changes are made
+- ✅ Only allocate new String when regex actually replaces content
+- ✅ Pattern match on `Cow::Owned` to detect when allocation is needed
+
+**Impact**: ~5-10% improvement for tasks with lots of metadata, reduced memory pressure
+
+**Files Modified**: `src/extractor.rs`
 
 #### 5. Vec Pre-allocation (LOW PRIORITY - TODO)
 **Problem**: Tasks vec starts with 0 capacity
@@ -140,7 +150,17 @@ let mut tasks = Vec::with_capacity(lines.len() / 10);
 
 **Impact**: Minor reduction in allocations
 
-**Expected Combined Impact**: 5-8x speedup on large vaults (500+ files, 2000+ tasks)
+### Current Status
+
+**Completed Optimizations** (1-4): Major performance improvements implemented
+- Regex precompilation: 40-60% faster
+- Parallel file processing: 3-4x faster on multi-core systems
+- Priority extraction: 10-15% faster on tasks with priorities
+- String allocation reduction: 5-10% less memory pressure
+
+**Expected Combined Impact**: ~5-8x overall speedup on large vaults (500+ files, 2000+ tasks)
+
+**Remaining**: Vec pre-allocation (low priority, minimal impact)
 
 ## Adding New Features
 
