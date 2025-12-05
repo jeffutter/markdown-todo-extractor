@@ -26,13 +26,30 @@ cargo run -- test.md
 
 ## Architecture
 
-### Single-File Design
+### Modular Design
 
-The entire implementation is in `src/main.rs` with three main components:
+The project is organized into focused modules:
 
-1. **`Task` struct**: Serializable data structure holding all extracted task information
-2. **`TaskExtractor` struct**: Contains all regex patterns and extraction logic
-3. **`filter_tasks()` function**: Applies CLI filter arguments to extracted tasks
+1. **`src/extractor.rs`**: Task extraction and parsing
+   - `Task` struct: Serializable data structure holding all extracted task information
+   - `TaskExtractor` struct: Contains all regex patterns and extraction logic
+
+2. **`src/filter.rs`**: Task filtering functionality
+   - `FilterOptions` struct: Filter configuration
+   - `filter_tasks()` function: Applies filter criteria to extracted tasks
+
+3. **`src/mcp.rs`**: MCP server implementations
+   - `TaskSearchService`: MCP service for searching tasks
+   - `SearchTasksRequest`: Request parameters for task search
+   - `TaskSearchResponse`: Response wrapper for task results
+
+4. **`src/cli.rs`**: Command-line interface
+   - `Args` struct: CLI argument parsing
+   - `run_cli()` function: CLI execution logic
+
+5. **`src/main.rs`**: Application entry point
+   - Orchestrates CLI mode vs. MCP server modes (stdio/HTTP)
+   - Minimal logic, delegates to appropriate modules
 
 ### Task Extraction Pipeline
 
@@ -69,11 +86,18 @@ The cleaning step is critical: content is extracted first with all metadata inta
 
 ## Adding New Features
 
-When adding new metadata types or task statuses:
+### Adding New Metadata Types or Task Statuses
 
-1. Add regex pattern to `TaskExtractor::new()`
-2. Add extraction method (e.g., `extract_new_field()`)
-3. Call extraction in `create_task()`
-4. Add cleaning logic to `clean_content()` to remove the metadata from displayed text
-5. Add field to `Task` struct
-6. If filtering is needed, add CLI argument to `Args` and logic to `filter_tasks()`
+1. In `src/extractor.rs`:
+   - Add regex pattern to `TaskExtractor::new()`
+   - Add extraction method (e.g., `extract_new_field()`)
+   - Call extraction in `create_task()`
+   - Add cleaning logic to `clean_content()` to remove the metadata from displayed text
+   - Add field to `Task` struct
+
+2. If filtering is needed:
+   - Add field to `FilterOptions` in `src/filter.rs`
+   - Add filter logic in `filter_tasks()` function in `src/filter.rs`
+   - Add CLI argument to `Args` in `src/cli.rs`
+   - Update `Args::to_filter_options()` in `src/cli.rs`
+   - Add parameter to `SearchTasksRequest` in `src/mcp.rs`
