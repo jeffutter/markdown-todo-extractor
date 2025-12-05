@@ -218,7 +218,10 @@ impl TaskExtractor {
         &self,
         file_path: &Path,
     ) -> Result<Vec<Task>, Box<dyn std::error::Error>> {
-        let content = fs::read_to_string(file_path)?;
+        // Read file as bytes and validate UTF-8 with SIMD
+        let bytes = fs::read(file_path)?;
+        let content = simdutf8::basic::from_utf8(&bytes)
+            .map_err(|e| format!("Invalid UTF-8 in {:?}: {}", file_path, e))?;
         let mut tasks = Vec::new();
 
         // Use iterator instead of collecting into Vec
