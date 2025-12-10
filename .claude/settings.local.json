@@ -21,7 +21,8 @@
       "Bash(for i in 1 2 3 4 5)",
       "Bash(do echo \"Run $i:\")",
       "Bash(time ./target/release/markdown-todo-extractor:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

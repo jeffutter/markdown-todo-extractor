@@ -15,6 +15,27 @@ use std::sync::Arc;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+async fn tools_handler() -> impl axum::response::IntoResponse {
+    use axum::Json;
+    use mcp::SearchTasksRequest;
+    use schemars::schema_for;
+    use serde_json::json;
+
+    let schema = schema_for!(SearchTasksRequest);
+
+    let tools = json!({
+        "tools": [
+            {
+                "name": "search_tasks",
+                "description": "Search for tasks in Markdown files with optional filtering by status, dates, and tags",
+                "input_schema": schema
+            }
+        ]
+    });
+
+    Json(tools)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -53,11 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Default::default(),
         );
 
-        let router = axum::Router::new().nest_service("/mcp", service);
+        let router = axum::Router::new()
+            .nest_service("/mcp", service)
+            .route("/tools", axum::routing::get(tools_handler));
         let addr = format!("0.0.0.0:{}", args.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
 
         eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
+        eprintln!("Tools documentation available at http://{}/tools", addr);
 
         axum::serve(listener, router)
             .with_graceful_shutdown(async {
