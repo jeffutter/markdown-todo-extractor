@@ -58,6 +58,9 @@ pub struct SearchTasksRequest {
 
     #[schemars(description = "Exclude tasks with these tags (must not have any)")]
     pub exclude_tags: Option<Vec<String>>,
+
+    #[schemars(description = "Limit the number of tasks returned")]
+    pub limit: Option<usize>,
 }
 
 #[tool_router]
@@ -99,7 +102,12 @@ impl TaskSearchService {
             tags: request.tags,
             exclude_tags: request.exclude_tags,
         };
-        let filtered_tasks = filter_tasks(tasks, &filter_options);
+        let mut filtered_tasks = filter_tasks(tasks, &filter_options);
+
+        // Apply limit if specified
+        if let Some(limit) = request.limit {
+            filtered_tasks.truncate(limit);
+        }
 
         // Return structured JSON wrapped in response object
         Ok(Json(TaskSearchResponse {
