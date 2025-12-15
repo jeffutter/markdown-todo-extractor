@@ -17,7 +17,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.145"
 simdutf8 = "0.1"
 tokio = { version = "1", features = ["full"] }
-rmcp = { version = "0.10", features = ["server", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "0.11", features = ["server", "transport-io", "transport-streamable-http-server"] }
 schemars = "1.0"
 axum = "0.8"
 
