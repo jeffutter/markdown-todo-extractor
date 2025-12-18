@@ -1,5 +1,6 @@
 use crate::extractor::{Task, TaskExtractor};
 use crate::filter::{FilterOptions, filter_tasks};
+use crate::tag_extractor::TagExtractor;
 use rmcp::{
     ServerHandler,
     handler::server::{
@@ -15,18 +16,34 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// MCP Service for task searching
+/// MCP Service for task searching and tag extraction
 #[derive(Clone)]
 pub struct TaskSearchService {
     tool_router: ToolRouter<TaskSearchService>,
     base_path: PathBuf,
-    extractor: Arc<TaskExtractor>,
+    task_extractor: Arc<TaskExtractor>,
+    tag_extractor: Arc<TagExtractor>,
 }
 
 /// Response for the search_tasks tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TaskSearchResponse {
     pub tasks: Vec<Task>,
+}
+
+/// Response for the extract_tags tool
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ExtractTagsResponse {
+    pub tags: Vec<String>,
+}
+
+/// Parameters for the extract_tags tool
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExtractTagsRequest {
+    #[schemars(
+        description = "Subpath within the base directory to search (optional, defaults to base path)"
+    )]
+    pub subpath: Option<String>,
 }
 
 /// Parameters for the search_tasks tool
@@ -69,7 +86,8 @@ impl TaskSearchService {
         Self {
             tool_router: Self::tool_router(),
             base_path,
-            extractor: Arc::new(TaskExtractor::new()),
+            task_extractor: Arc::new(TaskExtractor::new()),
+            tag_extractor: Arc::new(TagExtractor::new()),
         }
     }
 
@@ -82,7 +100,7 @@ impl TaskSearchService {
     ) -> Result<Json<TaskSearchResponse>, ErrorData> {
         // Extract tasks from the base path using the pre-compiled extractor
         let tasks = self
-            .extractor
+            .task_extractor
             .extract_tasks(&self.base_path)
             .map_err(|e| ErrorData {
                 code: ErrorCode(-32603),
@@ -114,6 +132,32 @@ impl TaskSearchService {
             tasks: filtered_tasks,
         }))
     }
+
+    #[tool(description = "Extract all unique tags from YAML frontmatter in Markdown files")]
+    async fn extract_tags(
+        &self,
+        Parameters(request): Parameters<ExtractTagsRequest>,
+    ) -> Result<Json<ExtractTagsResponse>, ErrorData> {
+        // Determine the search path (base path + optional subpath)
+        let search_path = if let Some(subpath) = request.subpath {
+            self.base_path.join(subpath)
+        } else {
+            self.base_path.clone()
+        };
+
+        // Extract tags from the search path
+        let tags = self
+            .tag_extractor
+            .extract_tags(&search_path)
+            .map_err(|e| ErrorData {
+                code: ErrorCode(-32603),
+                message: Cow::from(format!("Failed to extract tags: {}", e)),
+                data: None,
+            })?;
+
+        // Return structured JSON wrapped in response object
+        Ok(Json(ExtractTagsResponse { tags }))
+    }
 }
 
 #[tool_handler]
@@ -124,7 +168,7 @@ impl ServerHandler for TaskSearchService {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "A Markdown task extraction service that searches Markdown files for todo items and extracts metadata including tags, dates, priorities, and completion status. Supports filtering by status, due dates, completion dates, and tags."
+                "A Markdown task extraction service that searches Markdown files for todo items and extracts metadata including tags, dates, priorities, and completion status. Supports filtering by status, due dates, completion dates, and tags. Also extracts unique tags from YAML frontmatter across all markdown files."
                     .to_string(),
             ),
         }

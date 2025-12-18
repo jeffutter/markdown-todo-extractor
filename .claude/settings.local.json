@@ -22,7 +22,10 @@
       "Bash(do echo \"Run $i:\")",
       "Bash(time ./target/release/markdown-todo-extractor:*)",
       "Bash(done)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(./target/debug/markdown-todo-extractor:*)",
+      "Bash(cargo test:*)",
+      "Bash(jq:*)"
     ],
     "deny": [],
     "ask": []
