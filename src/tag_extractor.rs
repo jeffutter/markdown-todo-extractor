@@ -6,6 +6,26 @@ use std::path::{Path, PathBuf};
 /// Extractor for YAML frontmatter tags
 pub struct TagExtractor;
 
+/// Recursively collect all markdown files in a directory
+fn collect_markdown_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut files = Vec::new();
+
+    if dir.is_dir() {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                files.extend(collect_markdown_files(&path)?);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                files.push(path);
+            }
+        }
+    }
+
+    Ok(files)
+}
+
 impl TagExtractor {
     pub fn new() -> Self {
         Self
@@ -16,7 +36,7 @@ impl TagExtractor {
         let files = if path.is_file() {
             vec![path.to_path_buf()]
         } else {
-            self.collect_markdown_files(path)?
+            collect_markdown_files(path)?
         };
 
         // Use a BTreeSet to automatically sort and deduplicate tags
@@ -27,29 +47,6 @@ impl TagExtractor {
             .collect();
 
         Ok(tags.into_iter().collect())
-    }
-
-    /// Recursively collect all markdown files in a directory
-    fn collect_markdown_files(
-        &self,
-        dir: &Path,
-    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-        let mut files = Vec::new();
-
-        if dir.is_dir() {
-            for entry in fs::read_dir(dir)? {
-                let entry = entry?;
-                let path = entry.path();
-
-                if path.is_dir() {
-                    files.extend(self.collect_markdown_files(&path)?);
-                } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                    files.push(path);
-                }
-            }
-        }
-
-        Ok(files)
     }
 
     /// Extract tags from a single markdown file
@@ -121,11 +118,18 @@ impl TagExtractor {
                     let tags: Vec<String> = seq
                         .iter()
                         .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .filter(|s| !s.trim().is_empty())
                         .collect();
                     Ok(tags)
                 }
                 // Handle single tag as string
-                serde_yaml::Value::String(s) => Ok(vec![s.clone()]),
+                serde_yaml::Value::String(s) => {
+                    if s.trim().is_empty() {
+                        Ok(vec![])
+                    } else {
+                        Ok(vec![s.clone()])
+                    }
+                }
                 _ => Ok(vec![]),
             }
         } else {
@@ -220,6 +224,40 @@ Some content here without frontmatter.
 "#;
 
         let tags = extractor.extract_tags_from_content(content).unwrap();
+        assert_eq!(tags.len(), 0);
+    }
+
+    #[test]
+    fn test_empty_tags_filtered() {
+        let extractor = TagExtractor::new();
+
+        let frontmatter = r#"title: My Document
+tags:
+  - rust
+  - ""
+  - programming
+  - "  "
+  - cli
+"#;
+
+        let tags = extractor.parse_tags_from_frontmatter(frontmatter).unwrap();
+        assert_eq!(tags.len(), 3);
+        assert!(tags.contains(&"rust".to_string()));
+        assert!(tags.contains(&"programming".to_string()));
+        assert!(tags.contains(&"cli".to_string()));
+        assert!(!tags.contains(&"".to_string()));
+        assert!(!tags.contains(&"  ".to_string()));
+    }
+
+    #[test]
+    fn test_empty_string_tag_filtered() {
+        let extractor = TagExtractor::new();
+
+        let frontmatter = r#"title: My Document
+tags: ""
+"#;
+
+        let tags = extractor.parse_tags_from_frontmatter(frontmatter).unwrap();
         assert_eq!(tags.len(), 0);
     }
 }
