@@ -31,53 +31,56 @@ pub struct Args {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Extract and filter tasks from markdown files
-    Tasks {
-        /// Path to file or folder to scan
-        #[arg(required = true)]
-        path: PathBuf,
-
-        /// Filter by task status (incomplete, completed, cancelled)
-        #[arg(long)]
-        status: Option<String>,
-
-        /// Filter by exact due date (YYYY-MM-DD)
-        #[arg(long)]
-        due_on: Option<String>,
-
-        /// Filter tasks due before date (YYYY-MM-DD)
-        #[arg(long)]
-        due_before: Option<String>,
-
-        /// Filter tasks due after date (YYYY-MM-DD)
-        #[arg(long)]
-        due_after: Option<String>,
-
-        /// Filter tasks completed on a specific date (YYYY-MM-DD)
-        #[arg(long)]
-        completed_on: Option<String>,
-
-        /// Filter tasks completed before a specific date (YYYY-MM-DD)
-        #[arg(long)]
-        completed_before: Option<String>,
-
-        /// Filter tasks completed after a specific date (YYYY-MM-DD)
-        #[arg(long)]
-        completed_after: Option<String>,
-
-        /// Filter by tags (must have all specified tags)
-        #[arg(long, value_delimiter = ',')]
-        tags: Option<Vec<String>>,
-
-        /// Exclude tasks with these tags (must not have any)
-        #[arg(long, value_delimiter = ',')]
-        exclude_tags: Option<Vec<String>>,
-    },
+    Tasks(Box<TasksCommand>),
     /// Extract all unique tags from markdown files
     Tags {
         /// Path to file or folder to scan
         #[arg(required = true)]
         path: PathBuf,
     },
+}
+
+#[derive(Parser, Debug)]
+pub struct TasksCommand {
+    /// Path to file or folder to scan
+    #[arg(required = true)]
+    pub path: PathBuf,
+
+    /// Filter by task status (incomplete, completed, cancelled)
+    #[arg(long)]
+    pub status: Option<String>,
+
+    /// Filter by exact due date (YYYY-MM-DD)
+    #[arg(long)]
+    pub due_on: Option<String>,
+
+    /// Filter tasks due before date (YYYY-MM-DD)
+    #[arg(long)]
+    pub due_before: Option<String>,
+
+    /// Filter tasks due after date (YYYY-MM-DD)
+    #[arg(long)]
+    pub due_after: Option<String>,
+
+    /// Filter tasks completed on a specific date (YYYY-MM-DD)
+    #[arg(long)]
+    pub completed_on: Option<String>,
+
+    /// Filter tasks completed before a specific date (YYYY-MM-DD)
+    #[arg(long)]
+    pub completed_before: Option<String>,
+
+    /// Filter tasks completed after a specific date (YYYY-MM-DD)
+    #[arg(long)]
+    pub completed_after: Option<String>,
+
+    /// Filter by tags (must have all specified tags)
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Option<Vec<String>>,
+
+    /// Exclude tasks with these tags (must not have any)
+    #[arg(long, value_delimiter = ',')]
+    pub exclude_tags: Option<Vec<String>>,
 }
 
 impl Args {
@@ -107,35 +110,24 @@ impl Args {
 
 pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     match &args.command {
-        Some(Commands::Tasks {
-            path,
-            status,
-            due_on,
-            due_before,
-            due_after,
-            completed_on,
-            completed_before,
-            completed_after,
-            tags,
-            exclude_tags,
-        }) => {
+        Some(Commands::Tasks(tasks_cmd)) => {
             // Create task extractor
             let extractor = TaskExtractor::new();
 
             // Extract tasks from the given path
-            let tasks = extractor.extract_tasks(path)?;
+            let tasks = extractor.extract_tasks(&tasks_cmd.path)?;
 
             // Apply filters
             let filter_options = FilterOptions {
-                status: status.clone(),
-                due_on: due_on.clone(),
-                due_before: due_before.clone(),
-                due_after: due_after.clone(),
-                completed_on: completed_on.clone(),
-                completed_before: completed_before.clone(),
-                completed_after: completed_after.clone(),
-                tags: tags.clone(),
-                exclude_tags: exclude_tags.clone(),
+                status: tasks_cmd.status.clone(),
+                due_on: tasks_cmd.due_on.clone(),
+                due_before: tasks_cmd.due_before.clone(),
+                due_after: tasks_cmd.due_after.clone(),
+                completed_on: tasks_cmd.completed_on.clone(),
+                completed_before: tasks_cmd.completed_before.clone(),
+                completed_after: tasks_cmd.completed_after.clone(),
+                tags: tasks_cmd.tags.clone(),
+                exclude_tags: tasks_cmd.exclude_tags.clone(),
             };
             let filtered_tasks = filter_tasks(tasks, &filter_options);
 

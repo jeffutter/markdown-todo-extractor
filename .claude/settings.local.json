@@ -25,7 +25,8 @@
       "Bash(curl:*)",
       "Bash(./target/debug/markdown-todo-extractor:*)",
       "Bash(cargo test:*)",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(cargo clippy:*)"
     ],
     "deny": [],
     "ask": []

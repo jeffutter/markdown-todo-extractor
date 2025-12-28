@@ -16,6 +16,15 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Get the default limit for task results
+/// Reads from MARKDOWN_TODO_EXTRACTOR_DEFAULT_LIMIT env var, defaults to 50
+fn get_default_limit() -> usize {
+    std::env::var("MARKDOWN_TODO_EXTRACTOR_DEFAULT_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50)
+}
+
 /// MCP Service for task searching and tag extraction
 #[derive(Clone)]
 pub struct TaskSearchService {
@@ -122,10 +131,9 @@ impl TaskSearchService {
         };
         let mut filtered_tasks = filter_tasks(tasks, &filter_options);
 
-        // Apply limit if specified
-        if let Some(limit) = request.limit {
-            filtered_tasks.truncate(limit);
-        }
+        // Apply limit (use provided limit, or default from env/50)
+        let limit = request.limit.unwrap_or_else(get_default_limit);
+        filtered_tasks.truncate(limit);
 
         // Return structured JSON wrapped in response object
         Ok(Json(TaskSearchResponse {
