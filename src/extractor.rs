@@ -1,9 +1,11 @@
+use crate::config::Config;
 use rayon::prelude::*;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Represents a task found in a markdown file
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -41,10 +43,12 @@ pub struct TaskExtractor {
     whitespace_pattern: Regex,
     // Sub-item pattern (moved from parse_sub_item())
     checkbox_pattern: Regex,
+    // Configuration for path exclusion
+    config: Arc<Config>,
 }
 
 impl TaskExtractor {
-    pub fn new() -> Self {
+    pub fn new(config: Arc<Config>) -> Self {
         TaskExtractor {
             task_incomplete: Regex::new(r"^(\s*)-\s*\[\s\]\s*(.+)$").unwrap(),
             task_completed: Regex::new(r"(?i)^(\s*)-\s*\[x\]\s*(.+)$").unwrap(),
@@ -72,6 +76,7 @@ impl TaskExtractor {
             whitespace_pattern: Regex::new(r"\s+").unwrap(),
             // Sub-item pattern
             checkbox_pattern: Regex::new(r"^-\s*\[.\]\s*(.+)$").unwrap(),
+            config,
         }
     }
 
@@ -273,6 +278,11 @@ impl TaskExtractor {
             .flat_map(|entry| {
                 let path = entry.path();
 
+                // Check if this path should be excluded
+                if self.config.should_exclude(&path) {
+                    return Vec::new();
+                }
+
                 if path.is_file() {
                     if path.extension().and_then(|s| s.to_str()) == Some("md") {
                         match self.extract_tasks_from_file(&path) {
@@ -406,6 +416,6 @@ impl TaskExtractor {
 
 impl Default for TaskExtractor {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(Config::default()))
     }
 }

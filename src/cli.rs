@@ -1,8 +1,10 @@
+use crate::config::Config;
 use crate::extractor::TaskExtractor;
 use crate::filter::{FilterOptions, filter_tasks};
 use crate::tag_extractor::TagExtractor;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Commandline Args
 #[derive(Parser, Debug)]
@@ -111,8 +113,11 @@ impl Args {
 pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     match &args.command {
         Some(Commands::Tasks(tasks_cmd)) => {
+            // Load configuration from the task path
+            let config = Arc::new(Config::load_from_base_path(&tasks_cmd.path));
+
             // Create task extractor
-            let extractor = TaskExtractor::new();
+            let extractor = TaskExtractor::new(config);
 
             // Extract tasks from the given path
             let tasks = extractor.extract_tasks(&tasks_cmd.path)?;

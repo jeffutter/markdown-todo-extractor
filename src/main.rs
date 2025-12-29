@@ -1,4 +1,5 @@
 mod cli;
+mod config;
 mod extractor;
 mod filter;
 mod mcp;
@@ -23,6 +24,8 @@ struct AppState {
     base_path: PathBuf,
     task_extractor: Arc<extractor::TaskExtractor>,
     tag_extractor: Arc<tag_extractor::TagExtractor>,
+    #[allow(dead_code)]
+    config: Arc<config::Config>,
 }
 
 /// HTTP handler for searching tasks (GET with query params)
@@ -190,11 +193,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Default::default(),
         );
 
+        // Load configuration from base path
+        let config = Arc::new(config::Config::load_from_base_path(&base_path));
+
         // Create shared state for REST API endpoints
         let app_state = AppState {
             base_path: base_path.clone(),
-            task_extractor: Arc::new(extractor::TaskExtractor::new()),
+            task_extractor: Arc::new(extractor::TaskExtractor::new(config.clone())),
             tag_extractor: Arc::new(tag_extractor::TagExtractor::new()),
+            config,
         };
 
         let router = axum::Router::new()

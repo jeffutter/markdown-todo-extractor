@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::extractor::{Task, TaskExtractor};
 use crate::filter::{FilterOptions, filter_tasks};
 use crate::tag_extractor::TagExtractor;
@@ -92,10 +93,13 @@ pub struct SearchTasksRequest {
 #[tool_router]
 impl TaskSearchService {
     pub fn new(base_path: PathBuf) -> Self {
+        // Load configuration from base path
+        let config = Arc::new(Config::load_from_base_path(&base_path));
+
         Self {
             tool_router: Self::tool_router(),
             base_path,
-            task_extractor: Arc::new(TaskExtractor::new()),
+            task_extractor: Arc::new(TaskExtractor::new(config)),
             tag_extractor: Arc::new(TagExtractor::new()),
         }
     }
