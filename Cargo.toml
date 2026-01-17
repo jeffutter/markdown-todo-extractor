@@ -1,6 +1,6 @@
 [package]
 name = "markdown-todo-extractor"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2024"
 description = "Extractor to extract information about todo items from markdown files"
 repository = "https://github.com/jeffutter/markdown-todo-extractor"
@@ -18,7 +18,7 @@ serde_json = "1.0.145"
 serde_yaml = "0.9"
 simdutf8 = "0.1"
 tokio = { version = "1", features = ["full"] }
-rmcp = { version = "0.12", features = ["server", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "0.13", features = ["server", "transport-io", "transport-streamable-http-server"] }
 schemars = "1.0"
 axum = "0.8"
 glob = "0.3"
