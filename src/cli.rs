@@ -1,7 +1,6 @@
+use crate::capabilities::CapabilityRegistry;
 use crate::config::Config;
-use crate::extractor::TaskExtractor;
-use crate::filter::{FilterOptions, filter_tasks};
-use crate::tag_extractor::TagExtractor;
+use crate::mcp::{ExtractTagsRequest, SearchTasksRequest};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -116,14 +115,11 @@ pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             // Load configuration from the task path
             let config = Arc::new(Config::load_from_base_path(&tasks_cmd.path));
 
-            // Create task extractor
-            let extractor = TaskExtractor::new(config);
+            // Create capability registry
+            let registry = CapabilityRegistry::new(tasks_cmd.path.clone(), config);
 
-            // Extract tasks from the given path
-            let tasks = extractor.extract_tasks(&tasks_cmd.path)?;
-
-            // Apply filters
-            let filter_options = FilterOptions {
+            // Build search request from CLI arguments
+            let request = SearchTasksRequest {
                 status: tasks_cmd.status.clone(),
                 due_on: tasks_cmd.due_on.clone(),
                 due_before: tasks_cmd.due_before.clone(),
@@ -133,11 +129,14 @@ pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 completed_after: tasks_cmd.completed_after.clone(),
                 tags: tasks_cmd.tags.clone(),
                 exclude_tags: tasks_cmd.exclude_tags.clone(),
+                limit: None, // No limit for CLI
             };
-            let filtered_tasks = filter_tasks(tasks, &filter_options);
+
+            // Search tasks using TaskCapability
+            let response = registry.tasks().search_tasks_sync(request)?;
 
             // Output as JSON
-            let json = serde_json::to_string_pretty(&filtered_tasks)?;
+            let json = serde_json::to_string_pretty(&response.tasks)?;
             println!("{}", json);
 
             Ok(())
@@ -146,14 +145,17 @@ pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             // Load configuration from the path
             let config = Arc::new(Config::load_from_base_path(path));
 
-            // Create tag extractor
-            let extractor = TagExtractor::new(config);
+            // Create capability registry
+            let registry = CapabilityRegistry::new(path.clone(), config);
 
-            // Extract tags from the given path
-            let tags = extractor.extract_tags(path)?;
+            // Build extract tags request
+            let request = ExtractTagsRequest { subpath: None };
+
+            // Extract tags using TagCapability
+            let response = registry.tags().extract_tags_sync(request)?;
 
             // Output as JSON
-            let json = serde_json::to_string_pretty(&tags)?;
+            let json = serde_json::to_string_pretty(&response.tags)?;
             println!("{}", json);
 
             Ok(())

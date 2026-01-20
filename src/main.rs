@@ -1,3 +1,4 @@
+mod capabilities;
 mod cli;
 mod config;
 mod extractor;
@@ -21,8 +22,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// Shared state for HTTP handlers
 #[derive(Clone)]
 struct AppState {
+    capability_registry: Arc<capabilities::CapabilityRegistry>,
     base_path: PathBuf,
-    task_extractor: Arc<extractor::TaskExtractor>,
     tag_extractor: Arc<tag_extractor::TagExtractor>,
     #[allow(dead_code)]
     config: Arc<config::Config>,
@@ -49,41 +50,20 @@ async fn search_tasks_impl(
     state: AppState,
     request: mcp::SearchTasksRequest,
 ) -> Result<axum::Json<mcp::TaskSearchResponse>, (axum::http::StatusCode, String)> {
-    use filter::{FilterOptions, filter_tasks};
-
-    // Extract tasks from the base path
-    let tasks = state
-        .task_extractor
-        .extract_tasks(&state.base_path)
+    // Delegate to TaskCapability
+    let response = state
+        .capability_registry
+        .tasks()
+        .search_tasks(request)
+        .await
         .map_err(|e| {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to extract tasks: {}", e),
+                format!("Failed to search tasks: {}", e.message),
             )
         })?;
 
-    // Apply filters
-    let filter_options = FilterOptions {
-        status: request.status,
-        due_on: request.due_on,
-        due_before: request.due_before,
-        due_after: request.due_after,
-        completed_on: request.completed_on,
-        completed_before: request.completed_before,
-        completed_after: request.completed_after,
-        tags: request.tags,
-        exclude_tags: request.exclude_tags,
-    };
-    let mut filtered_tasks = filter_tasks(tasks, &filter_options);
-
-    // Apply limit if specified
-    if let Some(limit) = request.limit {
-        filtered_tasks.truncate(limit);
-    }
-
-    Ok(axum::Json(mcp::TaskSearchResponse {
-        tasks: filtered_tasks,
-    }))
+    Ok(axum::Json(response))
 }
 
 /// HTTP handler for extracting tags (GET with query params)
@@ -196,10 +176,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Load configuration from base path
         let config = Arc::new(config::Config::load_from_base_path(&base_path));
 
+        // Create capability registry
+        let capability_registry = Arc::new(capabilities::CapabilityRegistry::new(
+            base_path.clone(),
+            config.clone(),
+        ));
+
         // Create shared state for REST API endpoints
         let app_state = AppState {
+            capability_registry,
             base_path: base_path.clone(),
-            task_extractor: Arc::new(extractor::TaskExtractor::new(config.clone())),
             tag_extractor: Arc::new(tag_extractor::TagExtractor::new(config.clone())),
             config,
         };

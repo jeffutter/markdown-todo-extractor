@@ -106,35 +106,64 @@ cargo run -- --mcp-stdio /path/to/vault
 
 ## Architecture
 
-### Modular Design
+### Capability-Based Architecture
 
-The project is organized into focused modules:
+The project uses a **capability-based architecture** where each functional area (tasks, tags, files) is encapsulated in a capability that can be exposed via multiple interfaces (MCP, HTTP, CLI).
 
-1. **`src/extractor.rs`**: Task extraction and parsing
-   - `Task` struct: Serializable data structure holding all extracted task information
-   - `TaskExtractor` struct: Contains all regex patterns and extraction logic
+**Core Components:**
 
-2. **`src/filter.rs`**: Task filtering functionality
-   - `FilterOptions` struct: Filter configuration
-   - `filter_tasks()` function: Applies filter criteria to extracted tasks
+1. **`src/capabilities/mod.rs`**: Capability registry and trait system
+   - `Capability` trait: Common interface for all capabilities
+   - `CapabilityRegistry`: Manages lazy initialization of capabilities
+   - `CapabilityResult<T>`: Result type for capability operations
 
-3. **`src/config.rs`**: Configuration management
-   - `Config` struct: Application configuration (path exclusions, etc.)
-   - `load_from_base_path()`: Loads config from `.markdown-todo-extractor.toml`
-   - `should_exclude()`: Checks if a path matches exclusion patterns
+2. **`src/capabilities/tasks.rs`**: Task operations capability
+   - `TaskCapability`: Wraps `TaskExtractor` for task search and filtering
+   - Exposes: `search_tasks()` with sync and async versions
 
-4. **`src/mcp.rs`**: MCP server implementations
-   - `TaskSearchService`: MCP service for searching tasks
-   - `SearchTasksRequest`: Request parameters for task search
-   - `TaskSearchResponse`: Response wrapper for task results
+3. **`src/capabilities/tags.rs`**: Tag operations capability
+   - `TagCapability`: Wraps `TagExtractor` for tag extraction and search
+   - Exposes: `extract_tags()`, `list_tags()`, `search_by_tags()`
 
-5. **`src/cli.rs`**: Command-line interface
+4. **`src/capabilities/files.rs`**: File operations capability
+   - `FileCapability`: Handles file tree listing and reading
+   - Exposes: `list_files()`, `read_file()`
+   - Contains `build_file_tree()` helper function
+
+**Interface Adapters:**
+
+5. **`src/mcp.rs`**: MCP server adapter
+   - `TaskSearchService`: Thin delegation layer to capabilities
+   - Uses rmcp's `#[tool_router]` macro for automatic MCP protocol handling
+   - All `#[tool]` methods delegate to appropriate capabilities
+
+6. **`src/cli.rs`**: Command-line interface
+   - Creates `CapabilityRegistry` and calls synchronous capability methods
    - `Args` struct: CLI argument parsing
-   - `run_cli()` function: CLI execution logic
+   - `run_cli()` function: Delegates to capabilities
 
-6. **`src/main.rs`**: Application entry point
-   - Orchestrates CLI mode vs. MCP server modes (stdio/HTTP)
-   - Minimal logic, delegates to appropriate modules
+7. **`src/main.rs`**: Application entry point
+   - HTTP mode: Creates `AppState` with `CapabilityRegistry`
+   - MCP mode: Creates `TaskSearchService` with registry
+   - CLI mode: Calls `run_cli()` which uses registry
+
+**Core Extractors:**
+
+8. **`src/extractor.rs`**: Task extraction and parsing
+   - `Task` struct: Serializable data structure for task information
+   - `TaskExtractor` struct: Regex patterns and extraction logic
+
+9. **`src/tag_extractor.rs`**: Tag extraction from YAML frontmatter
+   - `TagExtractor`: Parses YAML frontmatter for tags
+   - `TagCount`, `TaggedFile`: Supporting data structures
+
+10. **`src/filter.rs`**: Task filtering functionality
+    - `FilterOptions` struct: Filter configuration
+    - `filter_tasks()` function: Applies filter criteria
+
+11. **`src/config.rs`**: Configuration management
+    - `Config` struct: Application configuration (path exclusions, etc.)
+    - `load_from_base_path()`: Loads from `.markdown-todo-extractor.toml`
 
 ### Task Extraction Pipeline
 
@@ -171,6 +200,65 @@ The cleaning step is critical: content is extracted first with all metadata inta
 
 ## Adding New Features
 
+### Adding a New Capability
+
+To add a new capability (e.g., for notes, bookmarks, etc.):
+
+1. **Create capability module** (`src/capabilities/new_capability.rs`):
+   ```rust
+   use crate::capabilities::{Capability, CapabilityResult};
+
+   pub struct NewCapability {
+       base_path: PathBuf,
+       config: Arc<Config>,
+   }
+
+   impl NewCapability {
+       pub fn new(base_path: PathBuf, config: Arc<Config>) -> Self {
+           Self { base_path, config }
+       }
+
+       pub async fn operation(&self, request: Request) -> CapabilityResult<Response> {
+           // Implementation
+       }
+
+       pub fn operation_sync(&self, request: Request) -> CapabilityResult<Response> {
+           // Synchronous implementation for CLI
+       }
+   }
+
+   impl Capability for NewCapability {
+       fn id(&self) -> &'static str { "new_capability" }
+       fn description(&self) -> &'static str { "Description" }
+   }
+   ```
+
+2. **Register in `src/capabilities/mod.rs`**:
+   - Add `pub mod new_capability;`
+   - Import: `use self::new_capability::NewCapability;`
+   - Add field: `new_capability: OnceLock<Arc<NewCapability>>`
+   - Update `new()` to initialize the `OnceLock`
+   - Add getter method: `pub fn new_cap(&self) -> Arc<NewCapability>`
+
+3. **Add MCP tool in `src/mcp.rs`**:
+   ```rust
+   #[tool(description = "...")]
+   async fn operation(&self, Parameters(req): Parameters<Request>)
+       -> Result<Json<Response>, ErrorData>
+   {
+       let response = self.capability_registry.new_cap().operation(req).await?;
+       Ok(Json(response))
+   }
+   ```
+
+4. **Add CLI command in `src/cli.rs`** (if needed):
+   - Add variant to `Commands` enum
+   - Handle in `run_cli()` by calling capability's sync method
+
+5. **Add HTTP handler in `src/main.rs`** (if needed):
+   - Create handler function that uses `state.capability_registry.new_cap()`
+   - Add route in router
+
 ### Adding New Metadata Types or Task Statuses
 
 1. In `src/extractor.rs`:
@@ -184,5 +272,5 @@ The cleaning step is critical: content is extracted first with all metadata inta
    - Add field to `FilterOptions` in `src/filter.rs`
    - Add filter logic in `filter_tasks()` function in `src/filter.rs`
    - Add CLI argument to `Args` in `src/cli.rs`
-   - Update `Args::to_filter_options()` in `src/cli.rs`
    - Add parameter to `SearchTasksRequest` in `src/mcp.rs`
+   - Update capability method to handle new filter option
