@@ -143,8 +143,11 @@ pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some(Commands::Tags { path }) => {
+            // Load configuration from the path
+            let config = Arc::new(Config::load_from_base_path(path));
+
             // Create tag extractor
-            let extractor = TagExtractor::new();
+            let extractor = TagExtractor::new(config);
 
             // Extract tags from the given path
             let tags = extractor.extract_tags(path)?;

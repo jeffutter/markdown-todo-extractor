@@ -1,13 +1,44 @@
+use crate::config::Config;
 use rayon::prelude::*;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Extractor for YAML frontmatter tags
-pub struct TagExtractor;
+pub struct TagExtractor {
+    config: Arc<Config>,
+}
+
+/// Tag with occurrence statistics
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TagCount {
+    /// The tag name (without # prefix)
+    pub tag: String,
+    /// Number of documents containing this tag
+    pub document_count: usize,
+}
+
+/// Represents a file that matches tag search criteria
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TaggedFile {
+    /// Absolute path to the file
+    pub file_path: String,
+    /// File name without path
+    pub file_name: String,
+    /// Tags that matched the search criteria
+    pub matched_tags: Vec<String>,
+    /// All tags found in the file's frontmatter
+    pub all_tags: Vec<String>,
+}
 
 /// Recursively collect all markdown files in a directory
-fn collect_markdown_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+fn collect_markdown_files(
+    dir: &Path,
+    config: &Config,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     let mut files = Vec::new();
 
     if dir.is_dir() {
@@ -15,8 +46,13 @@ fn collect_markdown_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error
             let entry = entry?;
             let path = entry.path();
 
+            // Skip excluded paths
+            if config.should_exclude(&path) {
+                continue;
+            }
+
             if path.is_dir() {
-                files.extend(collect_markdown_files(&path)?);
+                files.extend(collect_markdown_files(&path, config)?);
             } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
                 files.push(path);
             }
@@ -27,8 +63,8 @@ fn collect_markdown_files(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error
 }
 
 impl TagExtractor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config: Arc<Config>) -> Self {
+        Self { config }
     }
 
     /// Extract all unique tags from markdown files in the given path
@@ -36,7 +72,7 @@ impl TagExtractor {
         let files = if path.is_file() {
             vec![path.to_path_buf()]
         } else {
-            collect_markdown_files(path)?
+            collect_markdown_files(path, &self.config)?
         };
 
         // Use a BTreeSet to automatically sort and deduplicate tags
@@ -136,15 +172,152 @@ impl TagExtractor {
             Ok(vec![])
         }
     }
+
+    /// Extract all tags with document counts from markdown files in the given path
+    /// Returns tags sorted by document_count descending, then alphabetically
+    pub fn extract_tags_with_counts(
+        &self,
+        path: &Path,
+    ) -> Result<Vec<TagCount>, Box<dyn std::error::Error>> {
+        let files = if path.is_file() {
+            vec![path.to_path_buf()]
+        } else {
+            collect_markdown_files(path, &self.config)?
+        };
+
+        // Track which documents contain each tag
+        // Key: tag name, Value: set of file paths that contain this tag
+        use std::collections::{HashMap, HashSet};
+        let tag_documents: HashMap<String, HashSet<PathBuf>> = files
+            .par_iter()
+            .filter_map(|file_path| {
+                self.extract_tags_from_file(file_path)
+                    .ok()
+                    .map(|tags| (file_path.clone(), tags))
+            })
+            .fold(
+                HashMap::new,
+                |mut acc: HashMap<String, HashSet<PathBuf>>, (file_path, tags)| {
+                    // Deduplicate tags within the same file (a file counts once per tag)
+                    let unique_tags: HashSet<String> = tags.into_iter().collect();
+                    for tag in unique_tags {
+                        acc.entry(tag).or_default().insert(file_path.clone());
+                    }
+                    acc
+                },
+            )
+            .reduce(HashMap::new, |mut a, b| {
+                for (tag, files) in b {
+                    a.entry(tag).or_insert_with(HashSet::new).extend(files);
+                }
+                a
+            });
+
+        // Convert to Vec<TagCount> sorted by document_count desc, then tag name asc
+        let mut result: Vec<TagCount> = tag_documents
+            .into_iter()
+            .map(|(tag, files)| TagCount {
+                tag,
+                document_count: files.len(),
+            })
+            .collect();
+
+        result.sort_by(|a, b| {
+            b.document_count
+                .cmp(&a.document_count)
+                .then_with(|| a.tag.cmp(&b.tag))
+        });
+
+        Ok(result)
+    }
+
+    /// Search for files by tags with AND/OR logic
+    ///
+    /// # Arguments
+    /// * `path` - Directory to search
+    /// * `tags` - Tags to search for
+    /// * `match_all` - If true, file must have ALL tags (AND logic). If false, file must have ANY tag (OR logic)
+    pub fn search_by_tags(
+        &self,
+        path: &Path,
+        tags: &[String],
+        match_all: bool,
+    ) -> Result<Vec<TaggedFile>, Box<dyn std::error::Error>> {
+        let files = if path.is_file() {
+            vec![path.to_path_buf()]
+        } else {
+            collect_markdown_files(path, &self.config)?
+        };
+
+        // Normalize search tags to lowercase for case-insensitive comparison
+        let search_tags: Vec<String> = tags.iter().map(|t| t.to_lowercase()).collect();
+
+        let results: Vec<TaggedFile> = files
+            .par_iter()
+            .filter_map(|file_path| {
+                // Extract tags from file
+                let all_tags = self.extract_tags_from_file(file_path).ok()?;
+
+                if all_tags.is_empty() {
+                    return None;
+                }
+
+                // Normalize file tags for comparison
+                let normalized_tags: Vec<String> =
+                    all_tags.iter().map(|t| t.to_lowercase()).collect();
+
+                // Find which search tags match this file
+                let matched_tags: Vec<String> = search_tags
+                    .iter()
+                    .filter(|search_tag| normalized_tags.contains(search_tag))
+                    .cloned()
+                    .collect();
+
+                // Apply match logic
+                let matches = if match_all {
+                    // AND logic: all search tags must be present
+                    matched_tags.len() == search_tags.len()
+                } else {
+                    // OR logic: at least one search tag must be present
+                    !matched_tags.is_empty()
+                };
+
+                if matches {
+                    Some(TaggedFile {
+                        file_path: file_path.to_string_lossy().to_string(),
+                        file_name: file_path.file_name()?.to_string_lossy().to_string(),
+                        matched_tags,
+                        all_tags,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    fn create_test_config() -> Arc<Config> {
+        Arc::new(Config::default())
+    }
+
+    fn create_test_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf {
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        path
+    }
 
     #[test]
     fn test_extract_frontmatter() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let content = r#"---
 title: My Document
@@ -163,7 +336,7 @@ tags:
 
     #[test]
     fn test_parse_tags_array() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let frontmatter = r#"title: My Document
 tags:
@@ -181,7 +354,7 @@ tags:
 
     #[test]
     fn test_parse_tags_single_string() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let frontmatter = r#"title: My Document
 tags: single-tag
@@ -194,7 +367,7 @@ tags: single-tag
 
     #[test]
     fn test_extract_tags_from_content() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let content = r#"---
 title: My Document
@@ -216,7 +389,7 @@ Some content here.
 
     #[test]
     fn test_no_frontmatter() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let content = r#"# My Document
 
@@ -229,7 +402,7 @@ Some content here without frontmatter.
 
     #[test]
     fn test_empty_tags_filtered() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let frontmatter = r#"title: My Document
 tags:
@@ -251,7 +424,7 @@ tags:
 
     #[test]
     fn test_empty_string_tag_filtered() {
-        let extractor = TagExtractor::new();
+        let extractor = TagExtractor::new(create_test_config());
 
         let frontmatter = r#"title: My Document
 tags: ""
@@ -259,5 +432,278 @@ tags: ""
 
         let tags = extractor.parse_tags_from_frontmatter(frontmatter).unwrap();
         assert_eq!(tags.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_tags_with_counts_single_file() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        let content = r#"---
+tags:
+  - rust
+  - programming
+---
+# Content
+"#;
+        create_test_file(temp_dir.path(), "test1.md", content);
+
+        let counts = extractor.extract_tags_with_counts(temp_dir.path()).unwrap();
+
+        assert_eq!(counts.len(), 2);
+        assert!(
+            counts
+                .iter()
+                .any(|t| t.tag == "rust" && t.document_count == 1)
+        );
+        assert!(
+            counts
+                .iter()
+                .any(|t| t.tag == "programming" && t.document_count == 1)
+        );
+    }
+
+    #[test]
+    fn test_extract_tags_with_counts_multiple_files() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // File 1: has rust and programming tags
+        let content1 = r#"---
+tags:
+  - rust
+  - programming
+---
+"#;
+        create_test_file(temp_dir.path(), "file1.md", content1);
+
+        // File 2: has rust and cli tags
+        let content2 = r#"---
+tags:
+  - rust
+  - cli
+---
+"#;
+        create_test_file(temp_dir.path(), "file2.md", content2);
+
+        let counts = extractor.extract_tags_with_counts(temp_dir.path()).unwrap();
+
+        // rust appears in 2 documents, programming and cli in 1 each
+        let rust = counts.iter().find(|t| t.tag == "rust").unwrap();
+        assert_eq!(rust.document_count, 2);
+
+        let programming = counts.iter().find(|t| t.tag == "programming").unwrap();
+        assert_eq!(programming.document_count, 1);
+
+        let cli = counts.iter().find(|t| t.tag == "cli").unwrap();
+        assert_eq!(cli.document_count, 1);
+
+        // Should be sorted by count desc
+        assert_eq!(counts[0].tag, "rust");
+    }
+
+    #[test]
+    fn test_extract_tags_with_counts_duplicate_in_same_file() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // File with duplicate tag (should only count once per document)
+        let content = r#"---
+tags:
+  - rust
+  - rust
+  - programming
+---
+"#;
+        create_test_file(temp_dir.path(), "file.md", content);
+
+        let counts = extractor.extract_tags_with_counts(temp_dir.path()).unwrap();
+
+        let rust = counts.iter().find(|t| t.tag == "rust").unwrap();
+        assert_eq!(rust.document_count, 1); // Should be 1, not 2
+    }
+
+    #[test]
+    fn test_search_by_tags_or_logic() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // Create test files
+        create_test_file(
+            temp_dir.path(),
+            "file1.md",
+            "---\ntags:\n  - rust\n  - cli\n---\n# File 1",
+        );
+        create_test_file(
+            temp_dir.path(),
+            "file2.md",
+            "---\ntags:\n  - python\n  - cli\n---\n# File 2",
+        );
+        create_test_file(
+            temp_dir.path(),
+            "file3.md",
+            "---\ntags:\n  - java\n---\n# File 3",
+        );
+
+        // Search with OR logic (default)
+        let results = extractor
+            .search_by_tags(
+                temp_dir.path(),
+                &["rust".to_string(), "python".to_string()],
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|f| f.file_name == "file1.md"));
+        assert!(results.iter().any(|f| f.file_name == "file2.md"));
+    }
+
+    #[test]
+    fn test_search_by_tags_and_logic() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // Create test files
+        create_test_file(
+            temp_dir.path(),
+            "file1.md",
+            "---\ntags:\n  - rust\n  - cli\n---\n# File 1",
+        );
+        create_test_file(
+            temp_dir.path(),
+            "file2.md",
+            "---\ntags:\n  - rust\n---\n# File 2",
+        );
+
+        // Search with AND logic
+        let results = extractor
+            .search_by_tags(
+                temp_dir.path(),
+                &["rust".to_string(), "cli".to_string()],
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].file_name, "file1.md");
+    }
+
+    #[test]
+    fn test_search_by_tags_case_insensitive() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // Create test file with mixed case tags
+        create_test_file(
+            temp_dir.path(),
+            "file1.md",
+            "---\ntags:\n  - Rust\n  - CLI\n---\n# File 1",
+        );
+
+        // Search with lowercase
+        let results = extractor
+            .search_by_tags(temp_dir.path(), &["rust".to_string()], false)
+            .unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Search with uppercase
+        let results = extractor
+            .search_by_tags(temp_dir.path(), &["RUST".to_string()], false)
+            .unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_search_by_tags_empty_result() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // Create test file
+        create_test_file(
+            temp_dir.path(),
+            "file1.md",
+            "---\ntags:\n  - rust\n---\n# File 1",
+        );
+
+        // Search for non-existent tag
+        let results = extractor
+            .search_by_tags(temp_dir.path(), &["nonexistent".to_string()], false)
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_by_tags_respects_exclusions() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = Arc::new(Config {
+            exclude_paths: vec!["excluded".to_string()],
+        });
+        let extractor = TagExtractor::new(config);
+
+        // Create test files
+        create_test_file(
+            temp_dir.path(),
+            "file1.md",
+            "---\ntags:\n  - rust\n---\n# File 1",
+        );
+
+        // Create excluded directory
+        let excluded_dir = temp_dir.path().join("excluded");
+        std::fs::create_dir(&excluded_dir).unwrap();
+        create_test_file(
+            &excluded_dir,
+            "file2.md",
+            "---\ntags:\n  - rust\n---\n# File 2",
+        );
+
+        // Search should not include excluded file
+        let results = extractor
+            .search_by_tags(temp_dir.path(), &["rust".to_string()], false)
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].file_name, "file1.md");
+    }
+
+    #[test]
+    fn test_tagged_file_contains_all_tags() {
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config();
+        let extractor = TagExtractor::new(config);
+
+        // Create test file with multiple tags
+        create_test_file(
+            temp_dir.path(),
+            "file1.md",
+            "---\ntags:\n  - rust\n  - cli\n  - tool\n---\n# File 1",
+        );
+
+        // Search for one tag
+        let results = extractor
+            .search_by_tags(temp_dir.path(), &["rust".to_string()], false)
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matched_tags, vec!["rust".to_string()]);
+        assert_eq!(
+            results[0].all_tags,
+            vec!["rust".to_string(), "cli".to_string(), "tool".to_string()]
+        );
     }
 }

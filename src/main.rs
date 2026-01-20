@@ -200,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_state = AppState {
             base_path: base_path.clone(),
             task_extractor: Arc::new(extractor::TaskExtractor::new(config.clone())),
-            tag_extractor: Arc::new(tag_extractor::TagExtractor::new()),
+            tag_extractor: Arc::new(tag_extractor::TagExtractor::new(config.clone())),
             config,
         };
 
