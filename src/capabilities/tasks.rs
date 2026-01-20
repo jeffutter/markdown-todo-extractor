@@ -1,12 +1,61 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
-use crate::extractor::TaskExtractor;
+use crate::extractor::{Task, TaskExtractor};
 use crate::filter::{FilterOptions, filter_tasks};
-use crate::mcp::{SearchTasksRequest, TaskSearchResponse};
 use rmcp::model::{ErrorCode, ErrorData};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Operation metadata for search_tasks
+pub mod search_tasks {
+    pub const DESCRIPTION: &str =
+        "Search for tasks in Markdown files with optional filtering by status, dates, and tags";
+    pub const CLI_NAME: &str = "tasks";
+    pub const HTTP_PATH: &str = "/api/tasks";
+}
+
+/// Parameters for the search_tasks operation
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SearchTasksRequest {
+    #[schemars(description = "Filter by task status (incomplete, completed, cancelled)")]
+    pub status: Option<String>,
+
+    #[schemars(description = "Filter by exact due date (YYYY-MM-DD)")]
+    pub due_on: Option<String>,
+
+    #[schemars(description = "Filter tasks due before date (YYYY-MM-DD)")]
+    pub due_before: Option<String>,
+
+    #[schemars(description = "Filter tasks due after date (YYYY-MM-DD)")]
+    pub due_after: Option<String>,
+
+    #[schemars(description = "Filter tasks completed on a specific date (YYYY-MM-DD)")]
+    pub completed_on: Option<String>,
+
+    #[schemars(description = "Filter tasks completed before a specific date (YYYY-MM-DD)")]
+    pub completed_before: Option<String>,
+
+    #[schemars(description = "Filter tasks completed after a specific date (YYYY-MM-DD)")]
+    pub completed_after: Option<String>,
+
+    #[schemars(description = "Filter by tags (must have all specified tags)")]
+    pub tags: Option<Vec<String>>,
+
+    #[schemars(description = "Exclude tasks with these tags (must not have any)")]
+    pub exclude_tags: Option<Vec<String>>,
+
+    #[schemars(description = "Limit the number of tasks returned")]
+    pub limit: Option<usize>,
+}
+
+/// Response from the search_tasks operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TaskSearchResponse {
+    pub tasks: Vec<Task>,
+}
 
 /// Capability for task operations (search, filter, extract)
 pub struct TaskCapability {

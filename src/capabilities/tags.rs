@@ -1,14 +1,99 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
-use crate::mcp::{
-    ExtractTagsRequest, ExtractTagsResponse, ListTagsRequest, ListTagsResponse,
-    SearchByTagsRequest, SearchByTagsResponse,
-};
-use crate::tag_extractor::TagExtractor;
+use crate::tag_extractor::{TagCount, TagExtractor, TaggedFile};
 use rmcp::model::{ErrorCode, ErrorData};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Operation metadata for extract_tags
+pub mod extract_tags {
+    pub const DESCRIPTION: &str = "Extract all unique tags from YAML frontmatter in Markdown files";
+    pub const CLI_NAME: &str = "tags";
+    pub const HTTP_PATH: &str = "/api/tags";
+}
+
+/// Parameters for the extract_tags operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExtractTagsRequest {
+    #[schemars(
+        description = "Subpath within the base directory to search (optional, defaults to base path)"
+    )]
+    pub subpath: Option<String>,
+}
+
+/// Response from the extract_tags operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ExtractTagsResponse {
+    pub tags: Vec<String>,
+}
+
+/// Operation metadata for list_tags
+pub mod list_tags {
+    pub const DESCRIPTION: &str = "List all tags in the vault with document counts. Returns tags sorted by frequency (most common first). Useful for understanding the tag taxonomy, finding popular topics, and discovering content organization patterns.";
+    pub const CLI_NAME: &str = "list-tags";
+    pub const HTTP_PATH: &str = "/api/tags/list";
+}
+
+/// Parameters for the list_tags operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListTagsRequest {
+    #[schemars(
+        description = "Subpath within the vault to search (optional, defaults to entire vault)"
+    )]
+    pub path: Option<String>,
+
+    #[schemars(description = "Minimum document count to include a tag (optional, defaults to 1)")]
+    pub min_count: Option<usize>,
+
+    #[schemars(description = "Maximum number of tags to return (optional, defaults to all)")]
+    pub limit: Option<usize>,
+}
+
+/// Response from the list_tags operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListTagsResponse {
+    /// List of tags with their document counts
+    pub tags: Vec<TagCount>,
+    /// Total number of unique tags found (before filtering/limiting)
+    pub total_unique_tags: usize,
+    /// Whether the results were truncated due to limit parameter
+    pub truncated: bool,
+}
+
+/// Operation metadata for search_by_tags
+pub mod search_by_tags {
+    pub const DESCRIPTION: &str = "Search for files by YAML frontmatter tags with AND/OR matching. Returns files that match the specified tags.";
+    pub const CLI_NAME: &str = "search-tags";
+    pub const HTTP_PATH: &str = "/api/tags/search";
+}
+
+/// Parameters for the search_by_tags operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchByTagsRequest {
+    #[schemars(description = "Tags to search for")]
+    pub tags: Vec<String>,
+
+    #[schemars(
+        description = "If true, file must have ALL tags (AND logic). If false, file must have ANY tag (OR logic). Default: false"
+    )]
+    pub match_all: Option<bool>,
+
+    #[schemars(description = "Subpath within the base directory to search (optional)")]
+    pub subpath: Option<String>,
+
+    #[schemars(description = "Limit the number of files returned")]
+    pub limit: Option<usize>,
+}
+
+/// Response from the search_by_tags operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchByTagsResponse {
+    pub files: Vec<TaggedFile>,
+    pub total_count: usize,
+}
 
 /// Capability for tag operations (extract, list, search)
 pub struct TagCapability {

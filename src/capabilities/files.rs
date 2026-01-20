@@ -1,12 +1,80 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
-use crate::mcp::{
-    FileTreeNode, ListFilesRequest, ListFilesResponse, ReadFileRequest, ReadFileResponse,
-};
 use rmcp::model::{ErrorCode, ErrorData};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Operation metadata for list_files
+pub mod list_files {
+    pub const DESCRIPTION: &str = "List the directory tree of the vault. Returns a hierarchical view of all files and folders. Useful for understanding vault structure and finding files.";
+    pub const CLI_NAME: &str = "list-files";
+    pub const HTTP_PATH: &str = "/api/files";
+}
+
+/// Parameters for the list_files operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListFilesRequest {
+    #[schemars(
+        description = "Subpath within the vault to list (optional, defaults to vault root)"
+    )]
+    pub path: Option<String>,
+
+    #[schemars(description = "Maximum depth to traverse (optional, defaults to unlimited)")]
+    pub max_depth: Option<usize>,
+
+    #[schemars(description = "Include file sizes in output (optional, defaults to false)")]
+    pub include_sizes: Option<bool>,
+}
+
+/// A node in the file tree
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FileTreeNode {
+    pub name: String,
+    pub path: String,
+    pub is_directory: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub children: Vec<FileTreeNode>,
+}
+
+/// Response from the list_files operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListFilesResponse {
+    pub root: FileTreeNode,
+    pub total_files: usize,
+    pub total_directories: usize,
+}
+
+/// Operation metadata for read_file
+pub mod read_file {
+    pub const DESCRIPTION: &str = "Read the full contents of a markdown file from the vault";
+    pub const CLI_NAME: &str = "read-file";
+    pub const HTTP_PATH: &str = "/api/files/read";
+}
+
+/// Parameters for the read_file operation
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadFileRequest {
+    #[schemars(
+        description = "Path to the file relative to the vault root (e.g., 'Notes/my-note.md')"
+    )]
+    pub path: String,
+}
+
+/// Response from the read_file operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ReadFileResponse {
+    /// The full content of the file
+    pub content: String,
+    /// The file path relative to the vault root
+    pub file_path: String,
+    /// Just the file name
+    pub file_name: String,
+}
 
 /// Capability for file operations (list, read)
 pub struct FileCapability {

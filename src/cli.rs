@@ -1,6 +1,7 @@
 use crate::capabilities::CapabilityRegistry;
+use crate::capabilities::tags::ExtractTagsRequest;
+use crate::capabilities::tasks::SearchTasksRequest;
 use crate::config::Config;
-use crate::mcp::{ExtractTagsRequest, SearchTasksRequest};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;

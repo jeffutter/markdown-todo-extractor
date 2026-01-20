@@ -27,24 +27,24 @@ struct AppState {
 /// HTTP handler for searching tasks (GET with query params)
 async fn tasks_handler_get(
     axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<mcp::SearchTasksRequest>,
-) -> Result<axum::Json<mcp::TaskSearchResponse>, (axum::http::StatusCode, String)> {
+    query: axum::extract::Query<capabilities::tasks::SearchTasksRequest>,
+) -> Result<axum::Json<capabilities::tasks::TaskSearchResponse>, (axum::http::StatusCode, String)> {
     search_tasks_impl(state, query.0).await
 }
 
 /// HTTP handler for searching tasks (POST with JSON body)
 async fn tasks_handler_post(
     axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<mcp::SearchTasksRequest>,
-) -> Result<axum::Json<mcp::TaskSearchResponse>, (axum::http::StatusCode, String)> {
+    axum::Json(request): axum::Json<capabilities::tasks::SearchTasksRequest>,
+) -> Result<axum::Json<capabilities::tasks::TaskSearchResponse>, (axum::http::StatusCode, String)> {
     search_tasks_impl(state, request).await
 }
 
 /// Shared implementation for task searching
 async fn search_tasks_impl(
     state: AppState,
-    request: mcp::SearchTasksRequest,
-) -> Result<axum::Json<mcp::TaskSearchResponse>, (axum::http::StatusCode, String)> {
+    request: capabilities::tasks::SearchTasksRequest,
+) -> Result<axum::Json<capabilities::tasks::TaskSearchResponse>, (axum::http::StatusCode, String)> {
     // Delegate to TaskCapability
     let response = state
         .capability_registry
@@ -64,24 +64,24 @@ async fn search_tasks_impl(
 /// HTTP handler for extracting tags (GET with query params)
 async fn tags_handler_get(
     axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<mcp::ExtractTagsRequest>,
-) -> Result<axum::Json<mcp::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
+    query: axum::extract::Query<capabilities::tags::ExtractTagsRequest>,
+) -> Result<axum::Json<capabilities::tags::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
     extract_tags_impl(state, query.0).await
 }
 
 /// HTTP handler for extracting tags (POST with JSON body)
 async fn tags_handler_post(
     axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<mcp::ExtractTagsRequest>,
-) -> Result<axum::Json<mcp::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
+    axum::Json(request): axum::Json<capabilities::tags::ExtractTagsRequest>,
+) -> Result<axum::Json<capabilities::tags::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
     extract_tags_impl(state, request).await
 }
 
 /// Shared implementation for tag extraction
 async fn extract_tags_impl(
     state: AppState,
-    request: mcp::ExtractTagsRequest,
-) -> Result<axum::Json<mcp::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
+    request: capabilities::tags::ExtractTagsRequest,
+) -> Result<axum::Json<capabilities::tags::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
     // Delegate to TagCapability
     let response = state
         .capability_registry
@@ -100,7 +100,8 @@ async fn extract_tags_impl(
 
 async fn tools_handler() -> impl axum::response::IntoResponse {
     use axum::Json;
-    use mcp::{ExtractTagsRequest, SearchTasksRequest};
+    use capabilities::tags::ExtractTagsRequest;
+    use capabilities::tasks::SearchTasksRequest;
     use schemars::schema_for;
     use serde_json::json;
 
