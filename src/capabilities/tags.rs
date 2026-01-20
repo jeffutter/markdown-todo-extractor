@@ -36,7 +36,6 @@ pub mod list_tags {
     pub const DESCRIPTION: &str = "List all tags in the vault with document counts. Returns tags sorted by frequency (most common first). Useful for understanding the tag taxonomy, finding popular topics, and discovering content organization patterns.";
     #[allow(dead_code)]
     pub const CLI_NAME: &str = "list-tags";
-    #[allow(dead_code)]
     pub const HTTP_PATH: &str = "/api/tags/list";
 }
 
@@ -71,7 +70,6 @@ pub mod search_by_tags {
     pub const DESCRIPTION: &str = "Search for files by YAML frontmatter tags with AND/OR matching. Returns files that match the specified tags.";
     #[allow(dead_code)]
     pub const CLI_NAME: &str = "search-tags";
-    #[allow(dead_code)]
     pub const HTTP_PATH: &str = "/api/tags/search";
 }
 

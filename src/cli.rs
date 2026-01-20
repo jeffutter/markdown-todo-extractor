@@ -40,6 +40,14 @@ pub enum Commands {
         #[arg(required = true)]
         path: PathBuf,
     },
+    /// List all tags with document counts
+    ListTags(ListTagsCommand),
+    /// Search for files by tags
+    SearchByTags(SearchByTagsCommand),
+    /// List directory tree
+    ListFiles(ListFilesCommand),
+    /// Read a file
+    ReadFile(ReadFileCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -85,6 +93,66 @@ pub struct TasksCommand {
     pub exclude_tags: Option<Vec<String>>,
 }
 
+#[derive(Parser, Debug)]
+pub struct ListTagsCommand {
+    /// Path to file or folder to scan
+    #[arg(required = true)]
+    pub path: PathBuf,
+
+    /// Minimum document count to include a tag
+    #[arg(long)]
+    pub min_count: Option<usize>,
+
+    /// Maximum number of tags to return
+    #[arg(long)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Parser, Debug)]
+pub struct SearchByTagsCommand {
+    /// Path to file or folder to scan
+    #[arg(required = true)]
+    pub path: PathBuf,
+
+    /// Tags to search for
+    #[arg(long, value_delimiter = ',', required = true)]
+    pub tags: Vec<String>,
+
+    /// If true, file must have ALL tags (AND logic)
+    #[arg(long)]
+    pub match_all: bool,
+
+    /// Limit the number of files returned
+    #[arg(long)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Parser, Debug)]
+pub struct ListFilesCommand {
+    /// Path to file or folder to scan
+    #[arg(required = true)]
+    pub path: PathBuf,
+
+    /// Maximum depth to traverse
+    #[arg(long)]
+    pub max_depth: Option<usize>,
+
+    /// Include file sizes in output
+    #[arg(long)]
+    pub include_sizes: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct ReadFileCommand {
+    /// Path to the vault root
+    #[arg(required = true)]
+    pub vault_path: PathBuf,
+
+    /// Path to the file relative to vault root
+    #[arg(required = true)]
+    pub file_path: String,
+}
+
 impl Args {
     pub fn validate(&self) -> Result<(), String> {
         // Check that only one MCP mode is selected
@@ -94,7 +162,7 @@ impl Args {
 
         // Check that a command is provided in CLI mode
         if !self.mcp_stdio && !self.mcp_http && self.command.is_none() {
-            return Err("A subcommand is required. Use 'tasks' or 'tags'.".to_string());
+            return Err("A subcommand is required. Use 'tasks', 'tags', 'list-tags', 'search-by-tags', 'list-files', or 'read-file'.".to_string());
         }
 
         Ok(())
@@ -157,6 +225,81 @@ pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 
             // Output as JSON
             let json = serde_json::to_string_pretty(&response.tags)?;
+            println!("{}", json);
+
+            Ok(())
+        }
+        Some(Commands::ListTags(cmd)) => {
+            use crate::capabilities::tags::ListTagsRequest;
+
+            let config = Arc::new(Config::load_from_base_path(&cmd.path));
+            let registry = CapabilityRegistry::new(cmd.path.clone(), config);
+
+            let request = ListTagsRequest {
+                path: None,
+                min_count: cmd.min_count,
+                limit: cmd.limit,
+            };
+
+            let response = registry.tags().list_tags_sync(request)?;
+
+            let json = serde_json::to_string_pretty(&response)?;
+            println!("{}", json);
+
+            Ok(())
+        }
+        Some(Commands::SearchByTags(cmd)) => {
+            use crate::capabilities::tags::SearchByTagsRequest;
+
+            let config = Arc::new(Config::load_from_base_path(&cmd.path));
+            let registry = CapabilityRegistry::new(cmd.path.clone(), config);
+
+            let request = SearchByTagsRequest {
+                tags: cmd.tags.clone(),
+                match_all: Some(cmd.match_all),
+                subpath: None,
+                limit: cmd.limit,
+            };
+
+            let response = registry.tags().search_by_tags_sync(request)?;
+
+            let json = serde_json::to_string_pretty(&response)?;
+            println!("{}", json);
+
+            Ok(())
+        }
+        Some(Commands::ListFiles(cmd)) => {
+            use crate::capabilities::files::ListFilesRequest;
+
+            let config = Arc::new(Config::load_from_base_path(&cmd.path));
+            let registry = CapabilityRegistry::new(cmd.path.clone(), config);
+
+            let request = ListFilesRequest {
+                path: None,
+                max_depth: cmd.max_depth,
+                include_sizes: Some(cmd.include_sizes),
+            };
+
+            let response = registry.files().list_files_sync(request)?;
+
+            let json = serde_json::to_string_pretty(&response)?;
+            println!("{}", json);
+
+            Ok(())
+        }
+        Some(Commands::ReadFile(cmd)) => {
+            use crate::capabilities::files::ReadFileRequest;
+
+            let config = Arc::new(Config::load_from_base_path(&cmd.vault_path));
+            let registry = CapabilityRegistry::new(cmd.vault_path.clone(), config);
+
+            let request = ReadFileRequest {
+                path: cmd.file_path.clone(),
+            };
+
+            let response = registry.files().read_file_sync(request)?;
+
+            let json = serde_json::to_string_pretty(&response)?;
             println!("{}", json);
 
             Ok(())
