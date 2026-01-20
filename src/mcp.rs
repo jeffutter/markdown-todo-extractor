@@ -135,14 +135,28 @@ impl TaskSearchService {
 #[tool_handler]
 impl ServerHandler for TaskSearchService {
     fn get_info(&self) -> ServerInfo {
+        // Build instructions from capability metadata
+        let instructions = format!(
+            "A Markdown task extraction service. Available operations:\n\
+             - {}\n\
+             - {}\n\
+             - {}\n\
+             - {}\n\
+             - {}\n\
+             - {}",
+            crate::capabilities::tasks::search_tasks::DESCRIPTION,
+            crate::capabilities::tags::extract_tags::DESCRIPTION,
+            crate::capabilities::tags::list_tags::DESCRIPTION,
+            crate::capabilities::tags::search_by_tags::DESCRIPTION,
+            crate::capabilities::files::list_files::DESCRIPTION,
+            crate::capabilities::files::read_file::DESCRIPTION
+        );
+
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some(
-                "A Markdown task extraction service that searches Markdown files for todo items and extracts metadata including tags, dates, priorities, and completion status. Supports filtering by status, due dates, completion dates, and tags. Also extracts unique tags from YAML frontmatter across all markdown files. Can read the full contents of individual markdown files from the vault. Can list the directory tree of the vault. Can list all tags with document counts to understand content organization. Can search for files by their frontmatter tags with AND/OR logic."
-                    .to_string(),
-            ),
+            instructions: Some(instructions),
         }
     }
 }

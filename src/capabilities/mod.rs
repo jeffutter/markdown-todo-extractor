@@ -15,6 +15,7 @@ use self::tasks::TaskCapability;
 pub type CapabilityResult<T> = Result<T, ErrorData>;
 
 /// Trait for capabilities that can be exposed via multiple interfaces (MCP, HTTP, CLI)
+#[allow(dead_code)]
 pub trait Capability: Send + Sync + 'static {
     /// Unique identifier for this capability
     fn id(&self) -> &'static str;
@@ -87,11 +88,13 @@ impl CapabilityRegistry {
     }
 
     /// Get the base path
+    #[allow(dead_code)]
     pub fn base_path(&self) -> &PathBuf {
         &self.base_path
     }
 
     /// Get the config
+    #[allow(dead_code)]
     pub fn config(&self) -> &Arc<Config> {
         &self.config
     }

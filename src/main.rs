@@ -112,12 +112,12 @@ async fn tools_handler() -> impl axum::response::IntoResponse {
         "tools": [
             {
                 "name": "search_tasks",
-                "description": "Search for tasks in Markdown files with optional filtering by status, dates, and tags",
+                "description": capabilities::tasks::search_tasks::DESCRIPTION,
                 "input_schema": search_tasks_schema
             },
             {
                 "name": "extract_tags",
-                "description": "Extract all unique tags from YAML frontmatter in Markdown files",
+                "description": capabilities::tags::extract_tags::DESCRIPTION,
                 "input_schema": extract_tags_schema
             }
         ]
@@ -182,11 +182,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .nest_service("/mcp", service)
             .route("/tools", axum::routing::get(tools_handler))
             .route(
-                "/api/tasks",
+                capabilities::tasks::search_tasks::HTTP_PATH,
                 axum::routing::get(tasks_handler_get).post(tasks_handler_post),
             )
             .route(
-                "/api/tags",
+                capabilities::tags::extract_tags::HTTP_PATH,
                 axum::routing::get(tags_handler_get).post(tags_handler_post),
             )
             .with_state(app_state);
@@ -196,8 +196,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
         eprintln!("Tools documentation available at http://{}/tools", addr);
         eprintln!("REST API available at:");
-        eprintln!("  - GET/POST http://{}/api/tasks", addr);
-        eprintln!("  - GET/POST http://{}/api/tags", addr);
+        eprintln!(
+            "  - GET/POST http://{}{}",
+            addr,
+            capabilities::tasks::search_tasks::HTTP_PATH
+        );
+        eprintln!(
+            "  - GET/POST http://{}{}",
+            addr,
+            capabilities::tags::extract_tags::HTTP_PATH
+        );
 
         axum::serve(listener, router)
             .with_graceful_shutdown(async {

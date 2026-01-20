@@ -13,6 +13,7 @@ use std::sync::Arc;
 pub mod search_tasks {
     pub const DESCRIPTION: &str =
         "Search for tasks in Markdown files with optional filtering by status, dates, and tags";
+    #[allow(dead_code)]
     pub const CLI_NAME: &str = "tasks";
     pub const HTTP_PATH: &str = "/api/tasks";
 }

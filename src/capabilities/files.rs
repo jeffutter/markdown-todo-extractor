@@ -10,7 +10,9 @@ use std::sync::Arc;
 /// Operation metadata for list_files
 pub mod list_files {
     pub const DESCRIPTION: &str = "List the directory tree of the vault. Returns a hierarchical view of all files and folders. Useful for understanding vault structure and finding files.";
+    #[allow(dead_code)]
     pub const CLI_NAME: &str = "list-files";
+    #[allow(dead_code)]
     pub const HTTP_PATH: &str = "/api/files";
 }
 
@@ -52,7 +54,9 @@ pub struct ListFilesResponse {
 /// Operation metadata for read_file
 pub mod read_file {
     pub const DESCRIPTION: &str = "Read the full contents of a markdown file from the vault";
+    #[allow(dead_code)]
     pub const CLI_NAME: &str = "read-file";
+    #[allow(dead_code)]
     pub const HTTP_PATH: &str = "/api/files/read";
 }
 
