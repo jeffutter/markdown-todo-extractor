@@ -13,7 +13,6 @@ use rmcp::{
     ServiceExt,
     transport::{stdio, streamable_http_server::session::local::LocalSessionManager},
 };
-use std::path::PathBuf;
 use std::sync::Arc;
 
 #[global_allocator]
@@ -23,10 +22,6 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Clone)]
 struct AppState {
     capability_registry: Arc<capabilities::CapabilityRegistry>,
-    base_path: PathBuf,
-    tag_extractor: Arc<tag_extractor::TagExtractor>,
-    #[allow(dead_code)]
-    config: Arc<config::Config>,
 }
 
 /// HTTP handler for searching tasks (GET with query params)
@@ -87,25 +82,20 @@ async fn extract_tags_impl(
     state: AppState,
     request: mcp::ExtractTagsRequest,
 ) -> Result<axum::Json<mcp::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
-    // Determine the search path (base path + optional subpath)
-    let search_path = if let Some(ref subpath) = request.subpath {
-        state.base_path.join(subpath)
-    } else {
-        state.base_path.clone()
-    };
-
-    // Extract tags from the search path
-    let tags = state
-        .tag_extractor
-        .extract_tags(&search_path)
+    // Delegate to TagCapability
+    let response = state
+        .capability_registry
+        .tags()
+        .extract_tags(request)
+        .await
         .map_err(|e| {
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to extract tags: {}", e),
+                format!("Failed to extract tags: {}", e.message),
             )
         })?;
 
-    Ok(axum::Json(mcp::ExtractTagsResponse { tags }))
+    Ok(axum::Json(response))
 }
 
 async fn tools_handler() -> impl axum::response::IntoResponse {
@@ -185,9 +175,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Create shared state for REST API endpoints
         let app_state = AppState {
             capability_registry,
-            base_path: base_path.clone(),
-            tag_extractor: Arc::new(tag_extractor::TagExtractor::new(config.clone())),
-            config,
         };
 
         let router = axum::Router::new()
