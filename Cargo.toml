@@ -8,21 +8,22 @@ repository = "https://github.com/jeffutter/markdown-todo-extractor"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1"
+axum = "0.8"
 clap = { version = "4.5.0", features = ["derive", "env"] }
+config = "0.15"
+glob = "0.3"
 markdown = "1.0.0"
 mimalloc = { version = "0.1.39" }
 rayon = "1.10"
 regex = { version = "1.10", features = ["perf"] }
+rmcp = { version = "0.13", features = ["server", "transport-io", "transport-streamable-http-server"] }
+schemars = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.145"
 serde_yaml = "0.9"
 simdutf8 = "0.1"
 tokio = { version = "1", features = ["full"] }
-rmcp = { version = "0.13", features = ["server", "transport-io", "transport-streamable-http-server"] }
-schemars = "1.0"
-axum = "0.8"
-glob = "0.3"
-config = "0.15"
 
 [dev-dependencies]
 tempfile = "3"

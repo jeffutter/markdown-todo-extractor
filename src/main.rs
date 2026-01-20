@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod extractor;
 mod filter;
+mod http_router;
 mod mcp;
 mod tag_extractor;
 
@@ -17,233 +18,6 @@ use std::sync::Arc;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-/// Shared state for HTTP handlers
-#[derive(Clone)]
-struct AppState {
-    capability_registry: Arc<capabilities::CapabilityRegistry>,
-}
-
-/// HTTP handler for searching tasks (GET with query params)
-async fn tasks_handler_get(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<capabilities::tasks::SearchTasksRequest>,
-) -> Result<axum::Json<capabilities::tasks::TaskSearchResponse>, (axum::http::StatusCode, String)> {
-    search_tasks_impl(state, query.0).await
-}
-
-/// HTTP handler for searching tasks (POST with JSON body)
-async fn tasks_handler_post(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<capabilities::tasks::SearchTasksRequest>,
-) -> Result<axum::Json<capabilities::tasks::TaskSearchResponse>, (axum::http::StatusCode, String)> {
-    search_tasks_impl(state, request).await
-}
-
-/// Shared implementation for task searching
-async fn search_tasks_impl(
-    state: AppState,
-    request: capabilities::tasks::SearchTasksRequest,
-) -> Result<axum::Json<capabilities::tasks::TaskSearchResponse>, (axum::http::StatusCode, String)> {
-    // Delegate to TaskCapability
-    let response = state
-        .capability_registry
-        .tasks()
-        .search_tasks(request)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to search tasks: {}", e.message),
-            )
-        })?;
-
-    Ok(axum::Json(response))
-}
-
-/// HTTP handler for extracting tags (GET with query params)
-async fn tags_handler_get(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<capabilities::tags::ExtractTagsRequest>,
-) -> Result<axum::Json<capabilities::tags::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
-    extract_tags_impl(state, query.0).await
-}
-
-/// HTTP handler for extracting tags (POST with JSON body)
-async fn tags_handler_post(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<capabilities::tags::ExtractTagsRequest>,
-) -> Result<axum::Json<capabilities::tags::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
-    extract_tags_impl(state, request).await
-}
-
-/// Shared implementation for tag extraction
-async fn extract_tags_impl(
-    state: AppState,
-    request: capabilities::tags::ExtractTagsRequest,
-) -> Result<axum::Json<capabilities::tags::ExtractTagsResponse>, (axum::http::StatusCode, String)> {
-    // Delegate to TagCapability
-    let response = state
-        .capability_registry
-        .tags()
-        .extract_tags(request)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to extract tags: {}", e.message),
-            )
-        })?;
-
-    Ok(axum::Json(response))
-}
-
-/// HTTP handler for listing tags (GET with query params)
-async fn list_tags_handler_get(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<capabilities::tags::ListTagsRequest>,
-) -> Result<axum::Json<capabilities::tags::ListTagsResponse>, (axum::http::StatusCode, String)> {
-    list_tags_impl(state, query.0).await
-}
-
-/// HTTP handler for listing tags (POST with JSON body)
-async fn list_tags_handler_post(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<capabilities::tags::ListTagsRequest>,
-) -> Result<axum::Json<capabilities::tags::ListTagsResponse>, (axum::http::StatusCode, String)> {
-    list_tags_impl(state, request).await
-}
-
-/// Shared implementation for listing tags
-async fn list_tags_impl(
-    state: AppState,
-    request: capabilities::tags::ListTagsRequest,
-) -> Result<axum::Json<capabilities::tags::ListTagsResponse>, (axum::http::StatusCode, String)> {
-    let response = state
-        .capability_registry
-        .tags()
-        .list_tags(request)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to list tags: {}", e.message),
-            )
-        })?;
-
-    Ok(axum::Json(response))
-}
-
-/// HTTP handler for searching by tags (GET with query params)
-async fn search_by_tags_handler_get(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<capabilities::tags::SearchByTagsRequest>,
-) -> Result<axum::Json<capabilities::tags::SearchByTagsResponse>, (axum::http::StatusCode, String)>
-{
-    search_by_tags_impl(state, query.0).await
-}
-
-/// HTTP handler for searching by tags (POST with JSON body)
-async fn search_by_tags_handler_post(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<capabilities::tags::SearchByTagsRequest>,
-) -> Result<axum::Json<capabilities::tags::SearchByTagsResponse>, (axum::http::StatusCode, String)>
-{
-    search_by_tags_impl(state, request).await
-}
-
-/// Shared implementation for searching by tags
-async fn search_by_tags_impl(
-    state: AppState,
-    request: capabilities::tags::SearchByTagsRequest,
-) -> Result<axum::Json<capabilities::tags::SearchByTagsResponse>, (axum::http::StatusCode, String)>
-{
-    let response = state
-        .capability_registry
-        .tags()
-        .search_by_tags(request)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to search by tags: {}", e.message),
-            )
-        })?;
-
-    Ok(axum::Json(response))
-}
-
-/// HTTP handler for listing files (GET with query params)
-async fn list_files_handler_get(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<capabilities::files::ListFilesRequest>,
-) -> Result<axum::Json<capabilities::files::ListFilesResponse>, (axum::http::StatusCode, String)> {
-    list_files_impl(state, query.0).await
-}
-
-/// HTTP handler for listing files (POST with JSON body)
-async fn list_files_handler_post(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<capabilities::files::ListFilesRequest>,
-) -> Result<axum::Json<capabilities::files::ListFilesResponse>, (axum::http::StatusCode, String)> {
-    list_files_impl(state, request).await
-}
-
-/// Shared implementation for listing files
-async fn list_files_impl(
-    state: AppState,
-    request: capabilities::files::ListFilesRequest,
-) -> Result<axum::Json<capabilities::files::ListFilesResponse>, (axum::http::StatusCode, String)> {
-    let response = state
-        .capability_registry
-        .files()
-        .list_files(request)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to list files: {}", e.message),
-            )
-        })?;
-
-    Ok(axum::Json(response))
-}
-
-/// HTTP handler for reading file (GET with query params)
-async fn read_file_handler_get(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    query: axum::extract::Query<capabilities::files::ReadFileRequest>,
-) -> Result<axum::Json<capabilities::files::ReadFileResponse>, (axum::http::StatusCode, String)> {
-    read_file_impl(state, query.0).await
-}
-
-/// HTTP handler for reading file (POST with JSON body)
-async fn read_file_handler_post(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    axum::Json(request): axum::Json<capabilities::files::ReadFileRequest>,
-) -> Result<axum::Json<capabilities::files::ReadFileResponse>, (axum::http::StatusCode, String)> {
-    read_file_impl(state, request).await
-}
-
-/// Shared implementation for reading file
-async fn read_file_impl(
-    state: AppState,
-    request: capabilities::files::ReadFileRequest,
-) -> Result<axum::Json<capabilities::files::ReadFileResponse>, (axum::http::StatusCode, String)> {
-    let response = state
-        .capability_registry
-        .files()
-        .read_file(request)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to read file: {}", e.message),
-            )
-        })?;
-
-    Ok(axum::Json(response))
-}
 
 async fn tools_handler() -> impl axum::response::IntoResponse {
     use axum::Json;
@@ -320,75 +94,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.clone(),
         ));
 
-        // Create shared state for REST API endpoints
-        let app_state = AppState {
-            capability_registry,
-        };
-
-        let router = axum::Router::new()
+        // Create router with base routes
+        let mut router = axum::Router::new()
             .nest_service("/mcp", service)
-            .route("/tools", axum::routing::get(tools_handler))
-            .route(
-                capabilities::tasks::search_tasks::HTTP_PATH,
-                axum::routing::get(tasks_handler_get).post(tasks_handler_post),
-            )
-            .route(
-                capabilities::tags::extract_tags::HTTP_PATH,
-                axum::routing::get(tags_handler_get).post(tags_handler_post),
-            )
-            .route(
-                capabilities::tags::list_tags::HTTP_PATH,
-                axum::routing::get(list_tags_handler_get).post(list_tags_handler_post),
-            )
-            .route(
-                capabilities::tags::search_by_tags::HTTP_PATH,
-                axum::routing::get(search_by_tags_handler_get).post(search_by_tags_handler_post),
-            )
-            .route(
-                capabilities::files::list_files::HTTP_PATH,
-                axum::routing::get(list_files_handler_get).post(list_files_handler_post),
-            )
-            .route(
-                capabilities::files::read_file::HTTP_PATH,
-                axum::routing::get(read_file_handler_get).post(read_file_handler_post),
-            )
-            .with_state(app_state);
+            .route("/tools", axum::routing::get(tools_handler));
+
+        // Automatically register all HTTP operations
+        for operation in capability_registry.create_http_operations() {
+            router = http_router::register_operation(router, operation);
+        }
         let addr = format!("0.0.0.0:{}", args.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
 
         eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
         eprintln!("Tools documentation available at http://{}/tools", addr);
         eprintln!("REST API available at:");
-        eprintln!(
-            "  - GET/POST http://{}{} (search tasks)",
-            addr,
-            capabilities::tasks::search_tasks::HTTP_PATH
-        );
-        eprintln!(
-            "  - GET/POST http://{}{} (extract tags)",
-            addr,
-            capabilities::tags::extract_tags::HTTP_PATH
-        );
-        eprintln!(
-            "  - GET/POST http://{}{} (list tags)",
-            addr,
-            capabilities::tags::list_tags::HTTP_PATH
-        );
-        eprintln!(
-            "  - GET/POST http://{}{} (search by tags)",
-            addr,
-            capabilities::tags::search_by_tags::HTTP_PATH
-        );
-        eprintln!(
-            "  - GET/POST http://{}{} (list files)",
-            addr,
-            capabilities::files::list_files::HTTP_PATH
-        );
-        eprintln!(
-            "  - GET/POST http://{}{} (read file)",
-            addr,
-            capabilities::files::read_file::HTTP_PATH
-        );
+
+        // Dynamically print all registered operations
+        for operation in capability_registry.create_http_operations() {
+            eprintln!(
+                "  - GET/POST http://{}{} ({})",
+                addr,
+                operation.path(),
+                operation.description()
+            );
+        }
 
         axum::serve(listener, router)
             .with_graceful_shutdown(async {

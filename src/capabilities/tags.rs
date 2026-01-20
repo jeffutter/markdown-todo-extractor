@@ -249,3 +249,117 @@ impl Capability for TagCapability {
         "Extract, list, and search by YAML frontmatter tags"
     }
 }
+
+/// HTTP operation struct for extract_tags
+pub struct ExtractTagsOperation {
+    capability: Arc<TagCapability>,
+}
+
+impl ExtractTagsOperation {
+    pub fn new(capability: Arc<TagCapability>) -> Self {
+        Self { capability }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::http_router::HttpOperation for ExtractTagsOperation {
+    fn path(&self) -> &'static str {
+        extract_tags::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        extract_tags::DESCRIPTION
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        let request: ExtractTagsRequest = serde_json::from_value(json).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32602),
+            message: Cow::from(format!("Invalid request parameters: {}", e)),
+            data: None,
+        })?;
+
+        let response = self.capability.extract_tags(request).await?;
+
+        serde_json::to_value(response).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize response: {}", e)),
+            data: None,
+        })
+    }
+}
+
+/// HTTP operation struct for list_tags
+pub struct ListTagsOperation {
+    capability: Arc<TagCapability>,
+}
+
+impl ListTagsOperation {
+    pub fn new(capability: Arc<TagCapability>) -> Self {
+        Self { capability }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::http_router::HttpOperation for ListTagsOperation {
+    fn path(&self) -> &'static str {
+        list_tags::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        list_tags::DESCRIPTION
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        let request: ListTagsRequest = serde_json::from_value(json).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32602),
+            message: Cow::from(format!("Invalid request parameters: {}", e)),
+            data: None,
+        })?;
+
+        let response = self.capability.list_tags(request).await?;
+
+        serde_json::to_value(response).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize response: {}", e)),
+            data: None,
+        })
+    }
+}
+
+/// HTTP operation struct for search_by_tags
+pub struct SearchByTagsOperation {
+    capability: Arc<TagCapability>,
+}
+
+impl SearchByTagsOperation {
+    pub fn new(capability: Arc<TagCapability>) -> Self {
+        Self { capability }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::http_router::HttpOperation for SearchByTagsOperation {
+    fn path(&self) -> &'static str {
+        search_by_tags::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        search_by_tags::DESCRIPTION
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        let request: SearchByTagsRequest = serde_json::from_value(json).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32602),
+            message: Cow::from(format!("Invalid request parameters: {}", e)),
+            data: None,
+        })?;
+
+        let response = self.capability.search_by_tags(request).await?;
+
+        serde_json::to_value(response).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize response: {}", e)),
+            data: None,
+        })
+    }
+}

@@ -865,6 +865,7 @@ dependencies = [
 name = "markdown-todo-extractor"
 version = "0.5.6"
 dependencies = [
+ "async-trait",
  "axum",
  "clap",
  "config",

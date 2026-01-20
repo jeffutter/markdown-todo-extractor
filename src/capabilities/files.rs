@@ -347,6 +347,82 @@ impl Capability for FileCapability {
     }
 }
 
+/// HTTP operation struct for list_files
+pub struct ListFilesOperation {
+    capability: Arc<FileCapability>,
+}
+
+impl ListFilesOperation {
+    pub fn new(capability: Arc<FileCapability>) -> Self {
+        Self { capability }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::http_router::HttpOperation for ListFilesOperation {
+    fn path(&self) -> &'static str {
+        list_files::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        list_files::DESCRIPTION
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        let request: ListFilesRequest = serde_json::from_value(json).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32602),
+            message: Cow::from(format!("Invalid request parameters: {}", e)),
+            data: None,
+        })?;
+
+        let response = self.capability.list_files(request).await?;
+
+        serde_json::to_value(response).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize response: {}", e)),
+            data: None,
+        })
+    }
+}
+
+/// HTTP operation struct for read_file
+pub struct ReadFileOperation {
+    capability: Arc<FileCapability>,
+}
+
+impl ReadFileOperation {
+    pub fn new(capability: Arc<FileCapability>) -> Self {
+        Self { capability }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::http_router::HttpOperation for ReadFileOperation {
+    fn path(&self) -> &'static str {
+        read_file::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        read_file::DESCRIPTION
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        let request: ReadFileRequest = serde_json::from_value(json).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32602),
+            message: Cow::from(format!("Invalid request parameters: {}", e)),
+            data: None,
+        })?;
+
+        let response = self.capability.read_file(request).await?;
+
+        serde_json::to_value(response).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize response: {}", e)),
+            data: None,
+        })
+    }
+}
+
 /// Helper function to recursively build file tree
 fn build_file_tree(
     path: &Path,

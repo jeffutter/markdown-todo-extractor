@@ -98,4 +98,22 @@ impl CapabilityRegistry {
     pub fn config(&self) -> &Arc<Config> {
         &self.config
     }
+
+    /// Create all HTTP operations for automatic registration
+    ///
+    /// This is the single source of truth for which operations are exposed via HTTP.
+    /// Each operation wraps a capability method and implements the HttpOperation trait.
+    pub fn create_http_operations(&self) -> Vec<Arc<dyn crate::http_router::HttpOperation>> {
+        vec![
+            // Task operations
+            Arc::new(tasks::SearchTasksOperation::new(self.tasks())),
+            // Tag operations
+            Arc::new(tags::ExtractTagsOperation::new(self.tags())),
+            Arc::new(tags::ListTagsOperation::new(self.tags())),
+            Arc::new(tags::SearchByTagsOperation::new(self.tags())),
+            // File operations
+            Arc::new(files::ListFilesOperation::new(self.files())),
+            Arc::new(files::ReadFileOperation::new(self.files())),
+        ]
+    }
 }

@@ -138,3 +138,44 @@ fn get_default_limit() -> usize {
         .and_then(|s| s.parse().ok())
         .unwrap_or(50)
 }
+
+/// HTTP operation struct for search_tasks
+pub struct SearchTasksOperation {
+    capability: Arc<TaskCapability>,
+}
+
+impl SearchTasksOperation {
+    pub fn new(capability: Arc<TaskCapability>) -> Self {
+        Self { capability }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::http_router::HttpOperation for SearchTasksOperation {
+    fn path(&self) -> &'static str {
+        search_tasks::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        search_tasks::DESCRIPTION
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        // Deserialize JSON to request type
+        let request: SearchTasksRequest = serde_json::from_value(json).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32602),
+            message: Cow::from(format!("Invalid request parameters: {}", e)),
+            data: None,
+        })?;
+
+        // Execute the capability method
+        let response = self.capability.search_tasks(request).await?;
+
+        // Serialize response to JSON
+        serde_json::to_value(response).map_err(|e| ErrorData {
+            code: rmcp::model::ErrorCode(-32603),
+            message: Cow::from(format!("Failed to serialize response: {}", e)),
+            data: None,
+        })
+    }
+}
