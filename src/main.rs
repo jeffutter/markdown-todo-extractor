@@ -9,7 +9,7 @@ mod mcp;
 mod tag_extractor;
 
 use clap::Parser;
-use cli::{Args, run_cli};
+use cli::Args;
 use mcp::TaskSearchService;
 use rmcp::{
     ServiceExt,
@@ -50,23 +50,17 @@ async fn tools_handler() -> impl axum::response::IntoResponse {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Check if using CLI router commands before parsing Args
-    // This allows CLI router to handle commands that aren't in the old Args structure
-    let cli_router_commands = [
-        "tasks",
-        "tags",
-        "list-tags",
-        "search-tags",
-        "list-files",
-        "read-file",
-    ];
+    // Check if using CLI router commands or MCP server mode
+    // CLI router handles regular commands (tasks, tags, etc.)
+    // Args handles MCP server modes (--mcp-stdio, --mcp-http)
     let first_arg = std::env::args().nth(1);
-    let is_cli_router_command = first_arg
+    let is_mcp_mode = first_arg
         .as_ref()
-        .map(|arg| cli_router_commands.contains(&arg.as_str()))
+        .map(|arg| arg.starts_with("--mcp-"))
         .unwrap_or(false);
 
-    if is_cli_router_command {
+    // Use CLI router unless explicitly in MCP mode
+    if !is_mcp_mode {
         use capabilities::CapabilityRegistry;
         use config::Config;
         use std::path::PathBuf;
@@ -169,6 +163,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Normal CLI mode
-    run_cli(&args)
+    // If we reach here, neither MCP mode was selected (should be caught by validation)
+    Err("Invalid mode: must use either --mcp-stdio or --mcp-http".into())
 }

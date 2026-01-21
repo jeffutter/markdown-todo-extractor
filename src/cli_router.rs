@@ -29,6 +29,8 @@ pub fn build_cli(operations: &[Arc<dyn CliOperation>]) -> clap::Command {
     let mut cmd = clap::Command::new("markdown-todo-extractor")
         .version(env!("CARGO_PKG_VERSION"))
         .about("Extract todo items from Markdown files")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
         .arg(
             clap::Arg::new("path")
                 .long("path")
