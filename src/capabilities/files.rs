@@ -357,8 +357,9 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
             self.capability.list_files(request).await?
         };
 
-        // Serialize to JSON
-        Ok(serde_json::to_string_pretty(&response)?)
+        // Format as visual tree instead of JSON
+        let visual_output = format_tree_visual(&response.root, 0);
+        Ok(visual_output)
     }
 }
 
@@ -397,6 +398,26 @@ impl crate::cli_router::CliOperation for ReadFileOperation {
     }
 }
 
+/// Helper function to format a file tree as visual indented text
+fn format_tree_visual(node: &FileTreeNode, indent_level: usize) -> String {
+    let mut output = String::new();
+    let indent = "  ".repeat(indent_level);
+
+    // Add current node
+    if node.is_directory {
+        output.push_str(&format!("{}{}/\n", indent, node.name));
+    } else {
+        output.push_str(&format!("{}{}\n", indent, node.name));
+    }
+
+    // Recursively add children
+    for child in &node.children {
+        output.push_str(&format_tree_visual(child, indent_level + 1));
+    }
+
+    output
+}
+
 /// Helper function to recursively build file tree
 fn build_file_tree(
     path: &Path,
@@ -410,6 +431,15 @@ fn build_file_tree(
     if let Some(max) = max_depth
         && current_depth >= max
     {
+        // Still need to check if it's a file or directory
+        let metadata = std::fs::metadata(path)?;
+        let is_dir = metadata.is_dir();
+        let size = if !is_dir && include_sizes {
+            Some(metadata.len())
+        } else {
+            None
+        };
+
         return Ok((
             FileTreeNode {
                 name: path
@@ -422,11 +452,11 @@ fn build_file_tree(
                     .unwrap_or(path)
                     .to_string_lossy()
                     .to_string(),
-                is_directory: true,
-                size_bytes: None,
+                is_directory: is_dir,
+                size_bytes: size,
                 children: vec![],
             },
-            0,
+            if is_dir { 0 } else { 1 }, // Count as file if it's a file
             0,
         ));
     }
