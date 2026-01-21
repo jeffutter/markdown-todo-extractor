@@ -56,7 +56,8 @@ pub struct FileTreeNode {
 /// Response from the list_files operation
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListFilesResponse {
-    pub root: FileTreeNode,
+    /// Visual tree representation with indented structure
+    pub visual_tree: String,
     pub total_files: usize,
     pub total_directories: usize,
 }
@@ -169,8 +170,11 @@ impl FileCapability {
             data: None,
         })?;
 
+        // Generate visual tree representation
+        let visual_tree = format_tree_visual(&root, 0);
+
         Ok(ListFilesResponse {
-            root,
+            visual_tree,
             total_files,
             total_directories,
         })
@@ -357,9 +361,8 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
             self.capability.list_files(request).await?
         };
 
-        // Format as visual tree instead of JSON
-        let visual_output = format_tree_visual(&response.root, 0);
-        Ok(visual_output)
+        // Return the visual tree directly
+        Ok(response.visual_tree)
     }
 }
 
