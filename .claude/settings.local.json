@@ -42,7 +42,9 @@
       "Bash(git add:*)",
       "Bash(git push)",
       "Bash(git commit:*)",
-      "Bash(bd create:*)" 
+      "Bash(bd create:*)",
+      "Bash(bd dep add:*)",
+      "Bash(bd comments --help:*)"
     ],
     "deny": [],
     "ask": []
