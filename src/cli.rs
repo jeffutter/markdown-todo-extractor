@@ -1,6 +1,5 @@
 use crate::capabilities::CapabilityRegistry;
 use crate::capabilities::tags::ExtractTagsRequest;
-use crate::capabilities::tasks::SearchTasksRequest;
 use crate::config::Config;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -179,36 +178,30 @@ impl Args {
 }
 
 pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if using new CLI router (for tasks command)
+    if let Some(Commands::Tasks(_)) = &args.command {
+        // Create a minimal registry (base path will come from the parsed request)
+        let config = Arc::new(Config::default());
+        let registry = CapabilityRegistry::new(PathBuf::from("."), config);
+
+        // Get CLI operations
+        let operations = registry.create_cli_operations();
+
+        // Build CLI from operations
+        let cli = crate::cli_router::build_cli(&operations);
+
+        // Re-parse command line arguments using the new CLI structure
+        let matches = cli.get_matches();
+
+        // Execute via router
+        return crate::cli_router::execute_cli(&operations, matches, &registry);
+    }
+
+    // Keep existing manual routing for tags, list-tags, search-by-tags, list-files, read-file
     match &args.command {
-        Some(Commands::Tasks(tasks_cmd)) => {
-            // Load configuration from the task path
-            let config = Arc::new(Config::load_from_base_path(&tasks_cmd.path));
-
-            // Create capability registry
-            let registry = CapabilityRegistry::new(tasks_cmd.path.clone(), config);
-
-            // Build search request from CLI arguments
-            let request = SearchTasksRequest {
-                status: tasks_cmd.status.clone(),
-                due_on: tasks_cmd.due_on.clone(),
-                due_before: tasks_cmd.due_before.clone(),
-                due_after: tasks_cmd.due_after.clone(),
-                completed_on: tasks_cmd.completed_on.clone(),
-                completed_before: tasks_cmd.completed_before.clone(),
-                completed_after: tasks_cmd.completed_after.clone(),
-                tags: tasks_cmd.tags.clone(),
-                exclude_tags: tasks_cmd.exclude_tags.clone(),
-                limit: None, // No limit for CLI
-            };
-
-            // Search tasks using TaskCapability
-            let response = registry.tasks().search_tasks_sync(request)?;
-
-            // Output as JSON
-            let json = serde_json::to_string_pretty(&response.tasks)?;
-            println!("{}", json);
-
-            Ok(())
+        Some(Commands::Tasks(_)) => {
+            // This branch is unreachable due to the check above, but kept for clarity
+            unreachable!()
         }
         Some(Commands::Tags { path }) => {
             // Load configuration from the path

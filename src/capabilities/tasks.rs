@@ -2,6 +2,7 @@ use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
 use crate::extractor::{Task, TaskExtractor};
 use crate::filter::{FilterOptions, filter_tasks};
+use clap::{CommandFactory, FromArgMatches, Parser};
 use rmcp::model::{ErrorCode, ErrorData};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -19,35 +20,65 @@ pub mod search_tasks {
 }
 
 /// Parameters for the search_tasks operation
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Parser)]
+#[command(
+    name = "tasks",
+    about = "Search for tasks in Markdown files with optional filtering"
+)]
 pub struct SearchTasksRequest {
+    /// Path to scan (CLI only - not used in HTTP/MCP)
+    #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub path: Option<PathBuf>,
+
+    #[arg(long)]
     #[schemars(description = "Filter by task status (incomplete, completed, cancelled)")]
     pub status: Option<String>,
 
+    #[arg(long, help = "Filter by exact due date (YYYY-MM-DD)")]
     #[schemars(description = "Filter by exact due date (YYYY-MM-DD)")]
     pub due_on: Option<String>,
 
+    #[arg(long, help = "Filter tasks due before date (YYYY-MM-DD)")]
     #[schemars(description = "Filter tasks due before date (YYYY-MM-DD)")]
     pub due_before: Option<String>,
 
+    #[arg(long, help = "Filter tasks due after date (YYYY-MM-DD)")]
     #[schemars(description = "Filter tasks due after date (YYYY-MM-DD)")]
     pub due_after: Option<String>,
 
+    #[arg(long, help = "Filter tasks completed on a specific date (YYYY-MM-DD)")]
     #[schemars(description = "Filter tasks completed on a specific date (YYYY-MM-DD)")]
     pub completed_on: Option<String>,
 
+    #[arg(
+        long,
+        help = "Filter tasks completed before a specific date (YYYY-MM-DD)"
+    )]
     #[schemars(description = "Filter tasks completed before a specific date (YYYY-MM-DD)")]
     pub completed_before: Option<String>,
 
+    #[arg(
+        long,
+        help = "Filter tasks completed after a specific date (YYYY-MM-DD)"
+    )]
     #[schemars(description = "Filter tasks completed after a specific date (YYYY-MM-DD)")]
     pub completed_after: Option<String>,
 
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "Filter by tags (must have all specified tags)"
+    )]
     #[schemars(description = "Filter by tags (must have all specified tags)")]
     pub tags: Option<Vec<String>>,
 
+    #[arg(long, value_delimiter = ',', help = "Exclude tasks with these tags")]
     #[schemars(description = "Exclude tasks with these tags (must not have any)")]
     pub exclude_tags: Option<Vec<String>>,
 
+    #[arg(long, help = "Limit the number of tasks returned")]
     #[schemars(description = "Limit the number of tasks returned")]
     pub limit: Option<usize>,
 }
@@ -177,5 +208,44 @@ impl crate::http_router::HttpOperation for SearchTasksOperation {
             message: Cow::from(format!("Failed to serialize response: {}", e)),
             data: None,
         })
+    }
+}
+
+impl crate::cli_router::CliOperation for SearchTasksOperation {
+    fn command_name(&self) -> &'static str {
+        search_tasks::CLI_NAME
+    }
+
+    fn get_command(&self) -> clap::Command {
+        // Get command from request struct's Parser derive
+        SearchTasksRequest::command()
+    }
+
+    fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &crate::capabilities::CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Parse directly from ArgMatches using clap's from_arg_matches
+        let request = SearchTasksRequest::from_arg_matches(matches)?;
+
+        // For CLI usage, if a path was provided, we need to create a new capability
+        // with that path instead of using the registry's default
+        let response = if let Some(ref path) = request.path {
+            // Create a new capability with the provided path
+            let config = Arc::new(Config::load_from_base_path(path.as_path()));
+            let capability = TaskCapability::new(path.clone(), config);
+
+            // Clear the path from request since it's not part of the search parameters
+            let mut req_without_path = request;
+            req_without_path.path = None;
+            capability.search_tasks_sync(req_without_path)?
+        } else {
+            // Use the registry's capability (for when path comes from registry)
+            self.capability.search_tasks_sync(request)?
+        };
+
+        // Serialize to JSON
+        Ok(serde_json::to_string_pretty(&response.tasks)?)
     }
 }

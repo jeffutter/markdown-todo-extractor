@@ -116,4 +116,22 @@ impl CapabilityRegistry {
             Arc::new(files::ReadFileOperation::new(self.files())),
         ]
     }
+
+    /// Create all CLI operations for automatic registration
+    ///
+    /// This is the single source of truth for which operations are exposed via CLI.
+    /// Each operation wraps a capability method and implements the CliOperation trait.
+    pub fn create_cli_operations(&self) -> Vec<Arc<dyn crate::cli_router::CliOperation>> {
+        vec![
+            // Task operations
+            Arc::new(tasks::SearchTasksOperation::new(self.tasks())),
+            // TODO: Add tag operations in future ticket
+            // Arc::new(tags::ExtractTagsOperation::new(self.tags())),
+            // Arc::new(tags::ListTagsOperation::new(self.tags())),
+            // Arc::new(tags::SearchByTagsOperation::new(self.tags())),
+            // TODO: Add file operations in future ticket
+            // Arc::new(files::ListFilesOperation::new(self.files())),
+            // Arc::new(files::ReadFileOperation::new(self.files())),
+        ]
+    }
 }

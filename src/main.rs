@@ -1,5 +1,6 @@
 mod capabilities;
 mod cli;
+mod cli_router;
 mod config;
 mod extractor;
 mod filter;
