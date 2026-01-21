@@ -26,16 +26,17 @@ Choose one task from beads and execute it to completion.
   4.6. Ensure all tests pass: cargo test
   4.7. Ensure the code is formatted: cargo fmt
   4.8. If you did anything differently than as requested in the ticket, add a comment to the ticket
-  4.9. Unassign yourself from the ticket
-  4.10. Mark the ticket complete
-  4.11. Commit your changes
+  4.9. Mark the ticket complete
+  4.10. Commit your changes
 
 If, while implementing the feature, you notice that all work
 is complete, output <promise>COMPLETE</promise>.
 EOF
 )")
 
+  echo "========================================"
   echo "$result"
+  echo "========================================"
 
   if [[ "$result" == *"<promise>COMPLETE</promise>"* ]]; then
     echo "PRD complete, exiting."
