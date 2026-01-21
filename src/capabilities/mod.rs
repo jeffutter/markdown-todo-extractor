@@ -87,18 +87,6 @@ impl CapabilityRegistry {
             .clone()
     }
 
-    /// Get the base path
-    #[allow(dead_code)]
-    pub fn base_path(&self) -> &PathBuf {
-        &self.base_path
-    }
-
-    /// Get the config
-    #[allow(dead_code)]
-    pub fn config(&self) -> &Arc<Config> {
-        &self.config
-    }
-
     /// Create all operations for automatic registration
     ///
     /// This is the single source of truth for which operations are exposed via HTTP, CLI, and MCP.
