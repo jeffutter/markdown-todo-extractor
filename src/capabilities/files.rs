@@ -1,4 +1,4 @@
-use crate::capabilities::{Capability, CapabilityResult};
+use crate::capabilities::CapabilityResult;
 use crate::config::Config;
 use crate::error::{internal_error, invalid_params};
 use clap::{CommandFactory, FromArgMatches};
@@ -222,16 +222,6 @@ impl FileCapability {
             file_path: relative_path,
             file_name,
         })
-    }
-}
-
-impl Capability for FileCapability {
-    fn id(&self) -> &'static str {
-        "files"
-    }
-
-    fn description(&self) -> &'static str {
-        "List directory trees and read markdown file contents"
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::capabilities::{Capability, CapabilityResult};
+use crate::capabilities::CapabilityResult;
 use crate::config::Config;
 use crate::error::internal_error;
 use crate::tag_extractor::{TagCount, TagExtractor, TaggedFile};
@@ -239,16 +239,6 @@ impl TagCapability {
         }
 
         Ok(SearchByTagsResponse { files, total_count })
-    }
-}
-
-impl Capability for TagCapability {
-    fn id(&self) -> &'static str {
-        "tags"
-    }
-
-    fn description(&self) -> &'static str {
-        "Extract, list, and search by YAML frontmatter tags"
     }
 }
 

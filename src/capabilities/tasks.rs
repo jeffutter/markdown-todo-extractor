@@ -1,4 +1,4 @@
-use crate::capabilities::{Capability, CapabilityResult};
+use crate::capabilities::CapabilityResult;
 use crate::config::Config;
 use crate::error::internal_error;
 use crate::extractor::{Task, TaskExtractor};
@@ -136,16 +136,6 @@ impl TaskCapability {
         Ok(TaskSearchResponse {
             tasks: filtered_tasks,
         })
-    }
-}
-
-impl Capability for TaskCapability {
-    fn id(&self) -> &'static str {
-        "tasks"
-    }
-
-    fn description(&self) -> &'static str {
-        "Search and filter tasks from Markdown files"
     }
 }
 

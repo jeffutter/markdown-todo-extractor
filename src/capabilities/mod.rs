@@ -14,16 +14,6 @@ use self::tasks::TaskCapability;
 /// Result type for capability operations
 pub type CapabilityResult<T> = Result<T, ErrorData>;
 
-/// Trait for capabilities that can be exposed via multiple interfaces (MCP, HTTP, CLI)
-#[allow(dead_code)]
-pub trait Capability: Send + Sync + 'static {
-    /// Unique identifier for this capability
-    fn id(&self) -> &'static str;
-
-    /// Human-readable description of what this capability provides
-    fn description(&self) -> &'static str;
-}
-
 /// Registry for managing capabilities with lazy initialization
 ///
 /// This registry holds all capabilities and provides getter methods that
