@@ -5,7 +5,7 @@ pub mod tasks;
 use crate::config::Config;
 use rmcp::model::ErrorData;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use self::files::FileCapability;
 use self::tags::TagCapability;
@@ -14,67 +14,40 @@ use self::tasks::TaskCapability;
 /// Result type for capability operations
 pub type CapabilityResult<T> = Result<T, ErrorData>;
 
-/// Registry for managing capabilities with lazy initialization
+/// Registry for managing capabilities
 ///
-/// This registry holds all capabilities and provides getter methods that
-/// lazily initialize capabilities on first access. This avoids creating
-/// unused capabilities and maintains efficiency.
+/// This registry holds all capabilities and provides getter methods for
+/// accessing them. All capabilities are initialized at startup.
 pub struct CapabilityRegistry {
-    config: Arc<Config>,
-    base_path: PathBuf,
-
-    // Capability instances (lazily initialized)
-    task_capability: OnceLock<Arc<TaskCapability>>,
-    tag_capability: OnceLock<Arc<TagCapability>>,
-    file_capability: OnceLock<Arc<FileCapability>>,
+    // Capability instances
+    task_capability: Arc<TaskCapability>,
+    tag_capability: Arc<TagCapability>,
+    file_capability: Arc<FileCapability>,
 }
 
 impl CapabilityRegistry {
-    /// Create a new capability registry
+    /// Create a new capability registry with all capabilities initialized
     pub fn new(base_path: PathBuf, config: Arc<Config>) -> Self {
         Self {
-            config,
-            base_path,
-            task_capability: OnceLock::new(),
-            tag_capability: OnceLock::new(),
-            file_capability: OnceLock::new(),
+            task_capability: Arc::new(TaskCapability::new(base_path.clone(), Arc::clone(&config))),
+            tag_capability: Arc::new(TagCapability::new(base_path.clone(), Arc::clone(&config))),
+            file_capability: Arc::new(FileCapability::new(base_path, config)),
         }
     }
 
-    /// Get the task capability (lazily initialized)
+    /// Get the task capability
     pub fn tasks(&self) -> Arc<TaskCapability> {
-        self.task_capability
-            .get_or_init(|| {
-                Arc::new(TaskCapability::new(
-                    self.base_path.clone(),
-                    Arc::clone(&self.config),
-                ))
-            })
-            .clone()
+        Arc::clone(&self.task_capability)
     }
 
-    /// Get the tag capability (lazily initialized)
+    /// Get the tag capability
     pub fn tags(&self) -> Arc<TagCapability> {
-        self.tag_capability
-            .get_or_init(|| {
-                Arc::new(TagCapability::new(
-                    self.base_path.clone(),
-                    Arc::clone(&self.config),
-                ))
-            })
-            .clone()
+        Arc::clone(&self.tag_capability)
     }
 
-    /// Get the file capability (lazily initialized)
+    /// Get the file capability
     pub fn files(&self) -> Arc<FileCapability> {
-        self.file_capability
-            .get_or_init(|| {
-                Arc::new(FileCapability::new(
-                    self.base_path.clone(),
-                    Arc::clone(&self.config),
-                ))
-            })
-            .clone()
+        Arc::clone(&self.file_capability)
     }
 
     /// Create all operations for automatic registration
