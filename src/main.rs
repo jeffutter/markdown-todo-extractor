@@ -50,6 +50,38 @@ async fn tools_handler() -> impl axum::response::IntoResponse {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Check if using CLI router commands before parsing Args
+    // This allows CLI router to handle commands that aren't in the old Args structure
+    let cli_router_commands = ["tasks", "tags", "list-tags", "search-tags"];
+    let first_arg = std::env::args().nth(1);
+    let is_cli_router_command = first_arg
+        .as_ref()
+        .map(|arg| cli_router_commands.contains(&arg.as_str()))
+        .unwrap_or(false);
+
+    if is_cli_router_command {
+        use capabilities::CapabilityRegistry;
+        use config::Config;
+        use std::path::PathBuf;
+        use std::sync::Arc;
+
+        // Create a minimal registry (base path will come from the parsed request)
+        let config = Arc::new(Config::default());
+        let registry = CapabilityRegistry::new(PathBuf::from("."), config);
+
+        // Get CLI operations
+        let operations = registry.create_cli_operations();
+
+        // Build CLI from operations
+        let cli = cli_router::build_cli(&operations);
+
+        // Parse command line arguments using the new CLI structure
+        let matches = cli.get_matches();
+
+        // Execute via router
+        return cli_router::execute_cli(&operations, matches, &registry);
+    }
+
     let args = Args::parse();
 
     // Validate arguments

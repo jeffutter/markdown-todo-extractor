@@ -1,5 +1,4 @@
 use crate::capabilities::CapabilityRegistry;
-use crate::capabilities::tags::ExtractTagsRequest;
 use crate::config::Config;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -33,16 +32,6 @@ pub struct Args {
 pub enum Commands {
     /// Extract and filter tasks from markdown files
     Tasks(Box<TasksCommand>),
-    /// Extract all unique tags from markdown files
-    Tags {
-        /// Path to file or folder to scan
-        #[arg(required = true)]
-        path: PathBuf,
-    },
-    /// List all tags with document counts
-    ListTags(ListTagsCommand),
-    /// Search for files by tags
-    SearchByTags(SearchByTagsCommand),
     /// List directory tree
     ListFiles(ListFilesCommand),
     /// Read a file
@@ -93,40 +82,6 @@ pub struct TasksCommand {
 }
 
 #[derive(Parser, Debug)]
-pub struct ListTagsCommand {
-    /// Path to file or folder to scan
-    #[arg(required = true)]
-    pub path: PathBuf,
-
-    /// Minimum document count to include a tag
-    #[arg(long)]
-    pub min_count: Option<usize>,
-
-    /// Maximum number of tags to return
-    #[arg(long)]
-    pub limit: Option<usize>,
-}
-
-#[derive(Parser, Debug)]
-pub struct SearchByTagsCommand {
-    /// Path to file or folder to scan
-    #[arg(required = true)]
-    pub path: PathBuf,
-
-    /// Tags to search for
-    #[arg(long, value_delimiter = ',', required = true)]
-    pub tags: Vec<String>,
-
-    /// If true, file must have ALL tags (AND logic)
-    #[arg(long)]
-    pub match_all: bool,
-
-    /// Limit the number of files returned
-    #[arg(long)]
-    pub limit: Option<usize>,
-}
-
-#[derive(Parser, Debug)]
 pub struct ListFilesCommand {
     /// Path to file or folder to scan
     #[arg(required = true)]
@@ -161,7 +116,7 @@ impl Args {
 
         // Check that a command is provided in CLI mode
         if !self.mcp_stdio && !self.mcp_http && self.command.is_none() {
-            return Err("A subcommand is required. Use 'tasks', 'tags', 'list-tags', 'search-by-tags', 'list-files', or 'read-file'.".to_string());
+            return Err("A subcommand is required. Use 'tasks', 'tags', 'list-tags', 'search-tags', 'list-files', or 'read-file'.".to_string());
         }
 
         Ok(())
@@ -178,88 +133,11 @@ impl Args {
 }
 
 pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if using new CLI router (for tasks command)
-    if let Some(Commands::Tasks(_)) = &args.command {
-        // Create a minimal registry (base path will come from the parsed request)
-        let config = Arc::new(Config::default());
-        let registry = CapabilityRegistry::new(PathBuf::from("."), config);
-
-        // Get CLI operations
-        let operations = registry.create_cli_operations();
-
-        // Build CLI from operations
-        let cli = crate::cli_router::build_cli(&operations);
-
-        // Re-parse command line arguments using the new CLI structure
-        let matches = cli.get_matches();
-
-        // Execute via router
-        return crate::cli_router::execute_cli(&operations, matches, &registry);
-    }
-
-    // Keep existing manual routing for tags, list-tags, search-by-tags, list-files, read-file
+    // Manual routing for commands that haven't been migrated to CLI router yet
     match &args.command {
         Some(Commands::Tasks(_)) => {
-            // This branch is unreachable due to the check above, but kept for clarity
-            unreachable!()
-        }
-        Some(Commands::Tags { path }) => {
-            // Load configuration from the path
-            let config = Arc::new(Config::load_from_base_path(path));
-
-            // Create capability registry
-            let registry = CapabilityRegistry::new(path.clone(), config);
-
-            // Build extract tags request
-            let request = ExtractTagsRequest { subpath: None };
-
-            // Extract tags using TagCapability
-            let response = registry.tags().extract_tags_sync(request)?;
-
-            // Output as JSON
-            let json = serde_json::to_string_pretty(&response.tags)?;
-            println!("{}", json);
-
-            Ok(())
-        }
-        Some(Commands::ListTags(cmd)) => {
-            use crate::capabilities::tags::ListTagsRequest;
-
-            let config = Arc::new(Config::load_from_base_path(&cmd.path));
-            let registry = CapabilityRegistry::new(cmd.path.clone(), config);
-
-            let request = ListTagsRequest {
-                path: None,
-                min_count: cmd.min_count,
-                limit: cmd.limit,
-            };
-
-            let response = registry.tags().list_tags_sync(request)?;
-
-            let json = serde_json::to_string_pretty(&response)?;
-            println!("{}", json);
-
-            Ok(())
-        }
-        Some(Commands::SearchByTags(cmd)) => {
-            use crate::capabilities::tags::SearchByTagsRequest;
-
-            let config = Arc::new(Config::load_from_base_path(&cmd.path));
-            let registry = CapabilityRegistry::new(cmd.path.clone(), config);
-
-            let request = SearchByTagsRequest {
-                tags: cmd.tags.clone(),
-                match_all: Some(cmd.match_all),
-                subpath: None,
-                limit: cmd.limit,
-            };
-
-            let response = registry.tags().search_by_tags_sync(request)?;
-
-            let json = serde_json::to_string_pretty(&response)?;
-            println!("{}", json);
-
-            Ok(())
+            // This should be handled by the CLI router in main.rs
+            unreachable!("Tasks command should be handled by CLI router")
         }
         Some(Commands::ListFiles(cmd)) => {
             use crate::capabilities::files::ListFilesRequest;

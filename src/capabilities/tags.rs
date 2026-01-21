@@ -1,6 +1,7 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
 use crate::tag_extractor::{TagCount, TagExtractor, TaggedFile};
+use clap::{CommandFactory, FromArgMatches};
 use rmcp::model::{ErrorCode, ErrorData};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,8 +18,16 @@ pub mod extract_tags {
 }
 
 /// Parameters for the extract_tags operation
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema, clap::Parser)]
+#[command(name = "tags", about = "Extract all unique tags from YAML frontmatter")]
 pub struct ExtractTagsRequest {
+    /// Path to scan (CLI only - not used in HTTP/MCP)
+    #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub path: Option<PathBuf>,
+
+    #[arg(long, help = "Subpath within the directory to search")]
     #[schemars(
         description = "Subpath within the base directory to search (optional, defaults to base path)"
     )]
@@ -40,16 +49,26 @@ pub mod list_tags {
 }
 
 /// Parameters for the list_tags operation
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema, clap::Parser)]
+#[command(name = "list-tags", about = "List all tags with document counts")]
 pub struct ListTagsRequest {
+    /// Path to scan (CLI only - not used in HTTP/MCP)
+    #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub cli_path: Option<PathBuf>,
+
+    #[arg(long, help = "Subpath within the vault to search")]
     #[schemars(
         description = "Subpath within the vault to search (optional, defaults to entire vault)"
     )]
     pub path: Option<String>,
 
+    #[arg(long, help = "Minimum document count to include a tag")]
     #[schemars(description = "Minimum document count to include a tag (optional, defaults to 1)")]
     pub min_count: Option<usize>,
 
+    #[arg(long, help = "Maximum number of tags to return")]
     #[schemars(description = "Maximum number of tags to return (optional, defaults to all)")]
     pub limit: Option<usize>,
 }
@@ -74,19 +93,36 @@ pub mod search_by_tags {
 }
 
 /// Parameters for the search_by_tags operation
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema, clap::Parser)]
+#[command(
+    name = "search-tags",
+    about = "Search for files by YAML frontmatter tags"
+)]
 pub struct SearchByTagsRequest {
+    /// Path to scan (CLI only - not used in HTTP/MCP)
+    #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub cli_path: Option<PathBuf>,
+
+    #[arg(long, value_delimiter = ',', help = "Tags to search for")]
     #[schemars(description = "Tags to search for")]
     pub tags: Vec<String>,
 
+    #[arg(
+        long,
+        help = "File must have ALL tags (AND logic). Default: false (OR logic)"
+    )]
     #[schemars(
         description = "If true, file must have ALL tags (AND logic). If false, file must have ANY tag (OR logic). Default: false"
     )]
     pub match_all: Option<bool>,
 
+    #[arg(long, help = "Subpath within the directory to search")]
     #[schemars(description = "Subpath within the base directory to search (optional)")]
     pub subpath: Option<String>,
 
+    #[arg(long, help = "Limit the number of files returned")]
     #[schemars(description = "Limit the number of files returned")]
     pub limit: Option<usize>,
 }
@@ -361,5 +397,107 @@ impl crate::http_router::HttpOperation for SearchByTagsOperation {
             message: Cow::from(format!("Failed to serialize response: {}", e)),
             data: None,
         })
+    }
+}
+
+impl crate::cli_router::CliOperation for ExtractTagsOperation {
+    fn command_name(&self) -> &'static str {
+        extract_tags::CLI_NAME
+    }
+
+    fn get_command(&self) -> clap::Command {
+        // Get command from request struct's Parser derive
+        ExtractTagsRequest::command()
+    }
+
+    fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &crate::capabilities::CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Parse request from ArgMatches
+        let request = ExtractTagsRequest::from_arg_matches(matches)?;
+
+        // Handle CLI-specific path if present
+        let response = if let Some(ref path) = request.path {
+            let config = Arc::new(Config::load_from_base_path(path.as_path()));
+            let capability = TagCapability::new(path.clone(), config);
+            let mut req_without_path = request;
+            req_without_path.path = None;
+            capability.extract_tags_sync(req_without_path)?
+        } else {
+            self.capability.extract_tags_sync(request)?
+        };
+
+        // Serialize to JSON
+        Ok(serde_json::to_string_pretty(&response)?)
+    }
+}
+
+impl crate::cli_router::CliOperation for ListTagsOperation {
+    fn command_name(&self) -> &'static str {
+        list_tags::CLI_NAME
+    }
+
+    fn get_command(&self) -> clap::Command {
+        // Get command from request struct's Parser derive
+        ListTagsRequest::command()
+    }
+
+    fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &crate::capabilities::CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Parse request from ArgMatches
+        let request = ListTagsRequest::from_arg_matches(matches)?;
+
+        // Handle CLI-specific path if present
+        let response = if let Some(ref path) = request.cli_path {
+            let config = Arc::new(Config::load_from_base_path(path.as_path()));
+            let capability = TagCapability::new(path.clone(), config);
+            let mut req_without_path = request;
+            req_without_path.cli_path = None;
+            capability.list_tags_sync(req_without_path)?
+        } else {
+            self.capability.list_tags_sync(request)?
+        };
+
+        // Serialize to JSON
+        Ok(serde_json::to_string_pretty(&response)?)
+    }
+}
+
+impl crate::cli_router::CliOperation for SearchByTagsOperation {
+    fn command_name(&self) -> &'static str {
+        search_by_tags::CLI_NAME
+    }
+
+    fn get_command(&self) -> clap::Command {
+        // Get command from request struct's Parser derive
+        SearchByTagsRequest::command()
+    }
+
+    fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &crate::capabilities::CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Parse request from ArgMatches
+        let request = SearchByTagsRequest::from_arg_matches(matches)?;
+
+        // Handle CLI-specific path if present
+        let response = if let Some(ref path) = request.cli_path {
+            let config = Arc::new(Config::load_from_base_path(path.as_path()));
+            let capability = TagCapability::new(path.clone(), config);
+            let mut req_without_path = request;
+            req_without_path.cli_path = None;
+            capability.search_by_tags_sync(req_without_path)?
+        } else {
+            self.capability.search_by_tags_sync(request)?
+        };
+
+        // Serialize to JSON
+        Ok(serde_json::to_string_pretty(&response)?)
     }
 }
