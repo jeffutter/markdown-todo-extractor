@@ -13,7 +13,6 @@ axum = "0.8"
 clap = { version = "4.5.0", features = ["derive", "env"] }
 config = "0.15"
 glob = "0.3"
-markdown = "1.0.0"
 mimalloc = { version = "0.1.39" }
 rayon = "1.10"
 regex = { version = "1.10", features = ["perf"] }
