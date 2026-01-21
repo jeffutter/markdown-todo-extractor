@@ -42,22 +42,7 @@ impl Config {
         self.merge_from_env_var("MARKDOWN_TODO_EXTRACTOR_EXCLUDE_PATHS");
     }
 
-    /// Merge configuration from a specific environment variable (for testing)
-    #[cfg(test)]
-    fn merge_from_env_var(&mut self, var_name: &str) {
-        if let Ok(env_excludes) = std::env::var(var_name) {
-            let env_patterns: Vec<String> = env_excludes
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            // Extend existing patterns with env var patterns
-            self.exclude_paths.extend(env_patterns);
-        }
-    }
-
-    #[cfg(not(test))]
+    /// Merge configuration from a specific environment variable
     fn merge_from_env_var(&mut self, var_name: &str) {
         if let Ok(env_excludes) = std::env::var(var_name) {
             let env_patterns: Vec<String> = env_excludes
