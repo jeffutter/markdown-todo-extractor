@@ -1,6 +1,6 @@
 [package]
 name = "markdown-todo-extractor"
-version = "0.5.6"
+version = "0.6.0"
 edition = "2024"
 description = "Extractor to extract information about todo items from markdown files"
 repository = "https://github.com/jeffutter/markdown-todo-extractor"
