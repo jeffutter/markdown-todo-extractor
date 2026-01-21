@@ -129,9 +129,9 @@ impl CapabilityRegistry {
             Arc::new(tags::ExtractTagsOperation::new(self.tags())),
             Arc::new(tags::ListTagsOperation::new(self.tags())),
             Arc::new(tags::SearchByTagsOperation::new(self.tags())),
-            // TODO: Add file operations in future ticket
-            // Arc::new(files::ListFilesOperation::new(self.files())),
-            // Arc::new(files::ReadFileOperation::new(self.files())),
+            // File operations
+            Arc::new(files::ListFilesOperation::new(self.files())),
+            Arc::new(files::ReadFileOperation::new(self.files())),
         ]
     }
 }

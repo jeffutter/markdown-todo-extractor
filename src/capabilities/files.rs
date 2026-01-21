@@ -1,5 +1,6 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
+use clap::{CommandFactory, FromArgMatches};
 use rmcp::model::{ErrorCode, ErrorData};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,16 +17,26 @@ pub mod list_files {
 }
 
 /// Parameters for the list_files operation
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema, clap::Parser)]
+#[command(name = "list-files", about = "List the directory tree of the vault")]
 pub struct ListFilesRequest {
+    /// Path to scan (CLI only - not used in HTTP/MCP)
+    #[arg(index = 1, required = true, help = "Path to vault to scan")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub cli_path: Option<PathBuf>,
+
+    #[arg(long, help = "Subpath within the vault to list")]
     #[schemars(
         description = "Subpath within the vault to list (optional, defaults to vault root)"
     )]
     pub path: Option<String>,
 
+    #[arg(long, help = "Maximum depth to traverse")]
     #[schemars(description = "Maximum depth to traverse (optional, defaults to unlimited)")]
     pub max_depth: Option<usize>,
 
+    #[arg(long, help = "Include file sizes in output")]
     #[schemars(description = "Include file sizes in output (optional, defaults to false)")]
     pub include_sizes: Option<bool>,
 }
@@ -59,8 +70,24 @@ pub mod read_file {
 }
 
 /// Parameters for the read_file operation
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema, clap::Parser)]
+#[command(
+    name = "read-file",
+    about = "Read the full contents of a markdown file"
+)]
 pub struct ReadFileRequest {
+    /// Vault path (CLI only - not used in HTTP/MCP)
+    #[arg(index = 1, required = true, help = "Path to vault")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub cli_vault_path: Option<PathBuf>,
+
+    /// File path relative to vault root
+    #[arg(
+        index = 2,
+        required = true,
+        help = "Path to file relative to vault root"
+    )]
     #[schemars(
         description = "Path to the file relative to the vault root (e.g., 'Notes/my-note.md')"
     )]
@@ -420,6 +447,74 @@ impl crate::http_router::HttpOperation for ReadFileOperation {
             message: Cow::from(format!("Failed to serialize response: {}", e)),
             data: None,
         })
+    }
+}
+
+impl crate::cli_router::CliOperation for ListFilesOperation {
+    fn command_name(&self) -> &'static str {
+        list_files::CLI_NAME
+    }
+
+    fn get_command(&self) -> clap::Command {
+        // Get command from request struct's Parser derive
+        ListFilesRequest::command()
+    }
+
+    fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &crate::capabilities::CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Parse request from ArgMatches
+        let request = ListFilesRequest::from_arg_matches(matches)?;
+
+        // Handle CLI-specific path if present
+        let response = if let Some(ref path) = request.cli_path {
+            let config = Arc::new(Config::load_from_base_path(path.as_path()));
+            let capability = FileCapability::new(path.clone(), config);
+            let mut req_without_path = request;
+            req_without_path.cli_path = None;
+            capability.list_files_sync(req_without_path)?
+        } else {
+            self.capability.list_files_sync(request)?
+        };
+
+        // Serialize to JSON
+        Ok(serde_json::to_string_pretty(&response)?)
+    }
+}
+
+impl crate::cli_router::CliOperation for ReadFileOperation {
+    fn command_name(&self) -> &'static str {
+        read_file::CLI_NAME
+    }
+
+    fn get_command(&self) -> clap::Command {
+        // Get command from request struct's Parser derive
+        ReadFileRequest::command()
+    }
+
+    fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &crate::capabilities::CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Parse request from ArgMatches
+        let request = ReadFileRequest::from_arg_matches(matches)?;
+
+        // Handle CLI-specific vault path if present
+        let response = if let Some(ref vault_path) = request.cli_vault_path {
+            let config = Arc::new(Config::load_from_base_path(vault_path.as_path()));
+            let capability = FileCapability::new(vault_path.clone(), config);
+            let mut req_without_path = request;
+            req_without_path.cli_vault_path = None;
+            capability.read_file_sync(req_without_path)?
+        } else {
+            self.capability.read_file_sync(request)?
+        };
+
+        // Serialize to JSON
+        Ok(serde_json::to_string_pretty(&response)?)
     }
 }
 

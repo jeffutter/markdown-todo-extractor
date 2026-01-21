@@ -1,8 +1,5 @@
-use crate::capabilities::CapabilityRegistry;
-use crate::config::Config;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 /// Commandline Args
 #[derive(Parser, Debug)]
@@ -32,10 +29,6 @@ pub struct Args {
 pub enum Commands {
     /// Extract and filter tasks from markdown files
     Tasks(Box<TasksCommand>),
-    /// List directory tree
-    ListFiles(ListFilesCommand),
-    /// Read a file
-    ReadFile(ReadFileCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -81,32 +74,6 @@ pub struct TasksCommand {
     pub exclude_tags: Option<Vec<String>>,
 }
 
-#[derive(Parser, Debug)]
-pub struct ListFilesCommand {
-    /// Path to file or folder to scan
-    #[arg(required = true)]
-    pub path: PathBuf,
-
-    /// Maximum depth to traverse
-    #[arg(long)]
-    pub max_depth: Option<usize>,
-
-    /// Include file sizes in output
-    #[arg(long)]
-    pub include_sizes: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct ReadFileCommand {
-    /// Path to the vault root
-    #[arg(required = true)]
-    pub vault_path: PathBuf,
-
-    /// Path to the file relative to vault root
-    #[arg(required = true)]
-    pub file_path: String,
-}
-
 impl Args {
     pub fn validate(&self) -> Result<(), String> {
         // Check that only one MCP mode is selected
@@ -138,42 +105,6 @@ pub fn run_cli(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Tasks(_)) => {
             // This should be handled by the CLI router in main.rs
             unreachable!("Tasks command should be handled by CLI router")
-        }
-        Some(Commands::ListFiles(cmd)) => {
-            use crate::capabilities::files::ListFilesRequest;
-
-            let config = Arc::new(Config::load_from_base_path(&cmd.path));
-            let registry = CapabilityRegistry::new(cmd.path.clone(), config);
-
-            let request = ListFilesRequest {
-                path: None,
-                max_depth: cmd.max_depth,
-                include_sizes: Some(cmd.include_sizes),
-            };
-
-            let response = registry.files().list_files_sync(request)?;
-
-            let json = serde_json::to_string_pretty(&response)?;
-            println!("{}", json);
-
-            Ok(())
-        }
-        Some(Commands::ReadFile(cmd)) => {
-            use crate::capabilities::files::ReadFileRequest;
-
-            let config = Arc::new(Config::load_from_base_path(&cmd.vault_path));
-            let registry = CapabilityRegistry::new(cmd.vault_path.clone(), config);
-
-            let request = ReadFileRequest {
-                path: cmd.file_path.clone(),
-            };
-
-            let response = registry.files().read_file_sync(request)?;
-
-            let json = serde_json::to_string_pretty(&response)?;
-            println!("{}", json);
-
-            Ok(())
         }
         None => Err("No command provided".into()),
     }

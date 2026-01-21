@@ -52,7 +52,14 @@ async fn tools_handler() -> impl axum::response::IntoResponse {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if using CLI router commands before parsing Args
     // This allows CLI router to handle commands that aren't in the old Args structure
-    let cli_router_commands = ["tasks", "tags", "list-tags", "search-tags"];
+    let cli_router_commands = [
+        "tasks",
+        "tags",
+        "list-tags",
+        "search-tags",
+        "list-files",
+        "read-file",
+    ];
     let first_arg = std::env::args().nth(1);
     let is_cli_router_command = first_arg
         .as_ref()
