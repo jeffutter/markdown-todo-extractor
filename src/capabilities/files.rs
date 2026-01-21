@@ -24,13 +24,13 @@ pub struct ListFilesRequest {
     #[arg(index = 1, required = true, help = "Path to vault to scan")]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
-    pub cli_path: Option<PathBuf>,
+    pub path: Option<PathBuf>,
 
     #[arg(long, help = "Subpath within the vault to list")]
     #[schemars(
         description = "Subpath within the vault to list (optional, defaults to vault root)"
     )]
-    pub path: Option<String>,
+    pub subpath: Option<String>,
 
     #[arg(long, help = "Maximum depth to traverse")]
     #[schemars(description = "Maximum depth to traverse (optional, defaults to unlimited)")]
@@ -81,7 +81,7 @@ pub struct ReadFileRequest {
     #[arg(index = 1, required = true, help = "Path to vault")]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
-    pub cli_vault_path: Option<PathBuf>,
+    pub vault_path: Option<PathBuf>,
 
     /// File path relative to vault root
     #[arg(
@@ -92,7 +92,7 @@ pub struct ReadFileRequest {
     #[schemars(
         description = "Path to the file relative to the vault root (e.g., 'Notes/my-note.md')"
     )]
-    pub path: String,
+    pub file_path: String,
 }
 
 /// Response from the read_file operation
@@ -124,7 +124,7 @@ impl FileCapability {
         request: ListFilesRequest,
     ) -> CapabilityResult<ListFilesResponse> {
         // Resolve the search path
-        let search_path = if let Some(ref subpath) = request.path {
+        let search_path = if let Some(ref subpath) = request.subpath {
             let requested_path = PathBuf::from(subpath);
             self.base_path.join(&requested_path)
         } else {
@@ -139,7 +139,7 @@ impl FileCapability {
 
         let canonical_search = search_path
             .canonicalize()
-            .map_err(|_e| invalid_params(format!("Path not found: {:?}", request.path)))?;
+            .map_err(|_e| invalid_params(format!("Path not found: {:?}", request.subpath)))?;
 
         // Security: Ensure path is within base directory
         if !canonical_search.starts_with(&canonical_base) {
@@ -174,7 +174,7 @@ impl FileCapability {
     /// Read the full contents of a markdown file from the vault
     pub async fn read_file(&self, request: ReadFileRequest) -> CapabilityResult<ReadFileResponse> {
         // 1. Construct the full path
-        let requested_path = PathBuf::from(&request.path);
+        let requested_path = PathBuf::from(&request.file_path);
         let full_path = self.base_path.join(&requested_path);
 
         // 2. Canonicalize paths for security check
@@ -185,7 +185,7 @@ impl FileCapability {
 
         let canonical_full = full_path
             .canonicalize()
-            .map_err(|_e| invalid_params(format!("File not found: {}", request.path)))?;
+            .map_err(|_e| invalid_params(format!("File not found: {}", request.file_path)))?;
 
         // 3. Security: Ensure path is within base directory
         if !canonical_full.starts_with(&canonical_base) {
@@ -309,11 +309,11 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
         let request = ListFilesRequest::from_arg_matches(matches)?;
 
         // Handle CLI-specific path if present
-        let response = if let Some(ref path) = request.cli_path {
+        let response = if let Some(ref path) = request.path {
             let config = Arc::new(Config::load_from_base_path(path.as_path()));
             let capability = FileCapability::new(path.clone(), config);
             let mut req_without_path = request;
-            req_without_path.cli_path = None;
+            req_without_path.path = None;
             capability.list_files(req_without_path).await?
         } else {
             self.capability.list_files(request).await?
@@ -344,11 +344,11 @@ impl crate::cli_router::CliOperation for ReadFileOperation {
         let request = ReadFileRequest::from_arg_matches(matches)?;
 
         // Handle CLI-specific vault path if present
-        let response = if let Some(ref vault_path) = request.cli_vault_path {
+        let response = if let Some(ref vault_path) = request.vault_path {
             let config = Arc::new(Config::load_from_base_path(vault_path.as_path()));
             let capability = FileCapability::new(vault_path.clone(), config);
             let mut req_without_path = request;
-            req_without_path.cli_vault_path = None;
+            req_without_path.vault_path = None;
             capability.read_file(req_without_path).await?
         } else {
             self.capability.read_file(request).await?

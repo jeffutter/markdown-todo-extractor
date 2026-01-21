@@ -56,13 +56,13 @@ pub struct ListTagsRequest {
     #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
-    pub cli_path: Option<PathBuf>,
+    pub path: Option<PathBuf>,
 
     #[arg(long, help = "Subpath within the vault to search")]
     #[schemars(
         description = "Subpath within the vault to search (optional, defaults to entire vault)"
     )]
-    pub path: Option<String>,
+    pub subpath: Option<String>,
 
     #[arg(long, help = "Minimum document count to include a tag")]
     #[schemars(description = "Minimum document count to include a tag (optional, defaults to 1)")]
@@ -103,7 +103,7 @@ pub struct SearchByTagsRequest {
     #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
-    pub cli_path: Option<PathBuf>,
+    pub path: Option<PathBuf>,
 
     #[arg(long, value_delimiter = ',', help = "Tags to search for")]
     #[schemars(description = "Tags to search for")]
@@ -173,7 +173,7 @@ impl TagCapability {
     /// List all tags with document counts
     pub async fn list_tags(&self, request: ListTagsRequest) -> CapabilityResult<ListTagsResponse> {
         // Resolve search path
-        let search_path = if let Some(ref subpath) = request.path {
+        let search_path = if let Some(ref subpath) = request.subpath {
             self.base_path.join(subpath)
         } else {
             self.base_path.clone()
@@ -388,11 +388,11 @@ impl crate::cli_router::CliOperation for ListTagsOperation {
         let request = ListTagsRequest::from_arg_matches(matches)?;
 
         // Handle CLI-specific path if present
-        let response = if let Some(ref path) = request.cli_path {
+        let response = if let Some(ref path) = request.path {
             let config = Arc::new(Config::load_from_base_path(path.as_path()));
             let capability = TagCapability::new(path.clone(), config);
             let mut req_without_path = request;
-            req_without_path.cli_path = None;
+            req_without_path.path = None;
             capability.list_tags(req_without_path).await?
         } else {
             self.capability.list_tags(request).await?
@@ -423,11 +423,11 @@ impl crate::cli_router::CliOperation for SearchByTagsOperation {
         let request = SearchByTagsRequest::from_arg_matches(matches)?;
 
         // Handle CLI-specific path if present
-        let response = if let Some(ref path) = request.cli_path {
+        let response = if let Some(ref path) = request.path {
             let config = Arc::new(Config::load_from_base_path(path.as_path()));
             let capability = TagCapability::new(path.clone(), config);
             let mut req_without_path = request;
-            req_without_path.cli_path = None;
+            req_without_path.path = None;
             capability.search_by_tags(req_without_path).await?
         } else {
             self.capability.search_by_tags(request).await?
