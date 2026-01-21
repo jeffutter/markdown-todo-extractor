@@ -1,10 +1,10 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
+use crate::error::{internal_error, invalid_params};
 use clap::{CommandFactory, FromArgMatches};
-use rmcp::model::{ErrorCode, ErrorData};
+use rmcp::model::ErrorData;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -132,25 +132,20 @@ impl FileCapability {
         };
 
         // Canonicalize paths for security check
-        let canonical_base = self.base_path.canonicalize().map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to resolve base path: {}", e)),
-            data: None,
-        })?;
+        let canonical_base = self
+            .base_path
+            .canonicalize()
+            .map_err(|e| internal_error(format!("Failed to resolve base path: {}", e)))?;
 
-        let canonical_search = search_path.canonicalize().map_err(|_e| ErrorData {
-            code: ErrorCode(-32602),
-            message: Cow::from(format!("Path not found: {:?}", request.path)),
-            data: None,
-        })?;
+        let canonical_search = search_path
+            .canonicalize()
+            .map_err(|_e| invalid_params(format!("Path not found: {:?}", request.path)))?;
 
         // Security: Ensure path is within base directory
         if !canonical_search.starts_with(&canonical_base) {
-            return Err(ErrorData {
-                code: ErrorCode(-32602),
-                message: Cow::from("Invalid path: path must be within the vault"),
-                data: None,
-            });
+            return Err(invalid_params(
+                "Invalid path: path must be within the vault",
+            ));
         }
 
         // Build the file tree
@@ -164,11 +159,7 @@ impl FileCapability {
             request.max_depth,
             include_sizes,
         )
-        .map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to build file tree: {}", e)),
-            data: None,
-        })?;
+        .map_err(|e| internal_error(format!("Failed to build file tree: {}", e)))?;
 
         // Generate visual tree representation
         let visual_tree = format_tree_visual(&root, 0);
@@ -187,42 +178,32 @@ impl FileCapability {
         let full_path = self.base_path.join(&requested_path);
 
         // 2. Canonicalize paths for security check
-        let canonical_base = self.base_path.canonicalize().map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to resolve base path: {}", e)),
-            data: None,
-        })?;
+        let canonical_base = self
+            .base_path
+            .canonicalize()
+            .map_err(|e| internal_error(format!("Failed to resolve base path: {}", e)))?;
 
-        let canonical_full = full_path.canonicalize().map_err(|_e| ErrorData {
-            code: ErrorCode(-32602), // Invalid params
-            message: Cow::from(format!("File not found: {}", request.path)),
-            data: None,
-        })?;
+        let canonical_full = full_path
+            .canonicalize()
+            .map_err(|_e| invalid_params(format!("File not found: {}", request.path)))?;
 
         // 3. Security: Ensure path is within base directory
         if !canonical_full.starts_with(&canonical_base) {
-            return Err(ErrorData {
-                code: ErrorCode(-32602),
-                message: Cow::from("Invalid path: path must be within the vault"),
-                data: None,
-            });
+            return Err(invalid_params(
+                "Invalid path: path must be within the vault",
+            ));
         }
 
         // 4. Validate it's a markdown file
         if canonical_full.extension().and_then(|s| s.to_str()) != Some("md") {
-            return Err(ErrorData {
-                code: ErrorCode(-32602),
-                message: Cow::from("Invalid file type: only .md files can be read"),
-                data: None,
-            });
+            return Err(invalid_params(
+                "Invalid file type: only .md files can be read",
+            ));
         }
 
         // 5. Read the file content
-        let content = std::fs::read_to_string(&canonical_full).map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to read file: {}", e)),
-            data: None,
-        })?;
+        let content = std::fs::read_to_string(&canonical_full)
+            .map_err(|e| internal_error(format!("Failed to read file: {}", e)))?;
 
         // 6. Get relative path for response
         let relative_path = canonical_full
@@ -277,19 +258,13 @@ impl crate::http_router::HttpOperation for ListFilesOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ListFilesRequest = serde_json::from_value(json).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32602),
-            message: Cow::from(format!("Invalid request parameters: {}", e)),
-            data: None,
-        })?;
+        let request: ListFilesRequest = serde_json::from_value(json)
+            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
 
         let response = self.capability.list_files(request).await?;
 
-        serde_json::to_value(response).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize response: {}", e)),
-            data: None,
-        })
+        serde_json::to_value(response)
+            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
     }
 }
 
@@ -315,19 +290,13 @@ impl crate::http_router::HttpOperation for ReadFileOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ReadFileRequest = serde_json::from_value(json).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32602),
-            message: Cow::from(format!("Invalid request parameters: {}", e)),
-            data: None,
-        })?;
+        let request: ReadFileRequest = serde_json::from_value(json)
+            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
 
         let response = self.capability.read_file(request).await?;
 
-        serde_json::to_value(response).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize response: {}", e)),
-            data: None,
-        })
+        serde_json::to_value(response)
+            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
     }
 }
 

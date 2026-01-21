@@ -2,6 +2,7 @@ mod capabilities;
 mod cli;
 mod cli_router;
 mod config;
+mod error;
 mod extractor;
 mod filter;
 mod http_router;

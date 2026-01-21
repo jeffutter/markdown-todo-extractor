@@ -1,12 +1,12 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
+use crate::error::{internal_error, invalid_params};
 use crate::extractor::{Task, TaskExtractor};
 use crate::filter::{FilterOptions, filter_tasks};
 use clap::{CommandFactory, FromArgMatches, Parser};
-use rmcp::model::{ErrorCode, ErrorData};
+use rmcp::model::ErrorData;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -113,11 +113,7 @@ impl TaskCapability {
         let tasks = self
             .task_extractor
             .extract_tasks(&self.base_path)
-            .map_err(|e| ErrorData {
-                code: ErrorCode(-32603),
-                message: Cow::from(format!("Failed to extract tasks: {}", e)),
-                data: None,
-            })?;
+            .map_err(|e| internal_error(format!("Failed to extract tasks: {}", e)))?;
 
         // Apply filters
         let filter_options = FilterOptions {
@@ -185,21 +181,15 @@ impl crate::http_router::HttpOperation for SearchTasksOperation {
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
         // Deserialize JSON to request type
-        let request: SearchTasksRequest = serde_json::from_value(json).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32602),
-            message: Cow::from(format!("Invalid request parameters: {}", e)),
-            data: None,
-        })?;
+        let request: SearchTasksRequest = serde_json::from_value(json)
+            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
 
         // Execute the capability method
         let response = self.capability.search_tasks(request).await?;
 
         // Serialize response to JSON
-        serde_json::to_value(response).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize response: {}", e)),
-            data: None,
-        })
+        serde_json::to_value(response)
+            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
     }
 }
 

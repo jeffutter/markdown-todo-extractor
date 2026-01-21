@@ -1,11 +1,11 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
+use crate::error::{internal_error, invalid_params};
 use crate::tag_extractor::{TagCount, TagExtractor, TaggedFile};
 use clap::{CommandFactory, FromArgMatches};
-use rmcp::model::{ErrorCode, ErrorData};
+use rmcp::model::ErrorData;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -165,11 +165,7 @@ impl TagCapability {
         let tags = self
             .tag_extractor
             .extract_tags(&search_path)
-            .map_err(|e| ErrorData {
-                code: ErrorCode(-32603),
-                message: Cow::from(format!("Failed to extract tags: {}", e)),
-                data: None,
-            })?;
+            .map_err(|e| internal_error(format!("Failed to extract tags: {}", e)))?;
 
         Ok(ExtractTagsResponse { tags })
     }
@@ -187,11 +183,7 @@ impl TagCapability {
         let mut tags = self
             .tag_extractor
             .extract_tags_with_counts(&search_path)
-            .map_err(|e| ErrorData {
-                code: ErrorCode(-32603),
-                message: Cow::from(format!("Failed to extract tags: {}", e)),
-                data: None,
-            })?;
+            .map_err(|e| internal_error(format!("Failed to extract tags: {}", e)))?;
 
         // Track total before filtering
         let total_unique_tags = tags.len();
@@ -238,11 +230,7 @@ impl TagCapability {
         let mut files = self
             .tag_extractor
             .search_by_tags(&search_path, &request.tags, match_all)
-            .map_err(|e| ErrorData {
-                code: ErrorCode(-32603),
-                message: Cow::from(format!("Failed to search by tags: {}", e)),
-                data: None,
-            })?;
+            .map_err(|e| internal_error(format!("Failed to search by tags: {}", e)))?;
 
         let total_count = files.len();
 
@@ -287,19 +275,13 @@ impl crate::http_router::HttpOperation for ExtractTagsOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ExtractTagsRequest = serde_json::from_value(json).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32602),
-            message: Cow::from(format!("Invalid request parameters: {}", e)),
-            data: None,
-        })?;
+        let request: ExtractTagsRequest = serde_json::from_value(json)
+            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
 
         let response = self.capability.extract_tags(request).await?;
 
-        serde_json::to_value(response).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize response: {}", e)),
-            data: None,
-        })
+        serde_json::to_value(response)
+            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
     }
 }
 
@@ -325,19 +307,13 @@ impl crate::http_router::HttpOperation for ListTagsOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ListTagsRequest = serde_json::from_value(json).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32602),
-            message: Cow::from(format!("Invalid request parameters: {}", e)),
-            data: None,
-        })?;
+        let request: ListTagsRequest = serde_json::from_value(json)
+            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
 
         let response = self.capability.list_tags(request).await?;
 
-        serde_json::to_value(response).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize response: {}", e)),
-            data: None,
-        })
+        serde_json::to_value(response)
+            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
     }
 }
 
@@ -363,19 +339,13 @@ impl crate::http_router::HttpOperation for SearchByTagsOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: SearchByTagsRequest = serde_json::from_value(json).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32602),
-            message: Cow::from(format!("Invalid request parameters: {}", e)),
-            data: None,
-        })?;
+        let request: SearchByTagsRequest = serde_json::from_value(json)
+            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
 
         let response = self.capability.search_by_tags(request).await?;
 
-        serde_json::to_value(response).map_err(|e| ErrorData {
-            code: rmcp::model::ErrorCode(-32603),
-            message: Cow::from(format!("Failed to serialize response: {}", e)),
-            data: None,
-        })
+        serde_json::to_value(response)
+            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
     }
 }
 

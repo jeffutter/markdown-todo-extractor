@@ -48,7 +48,9 @@
       "Bash(cargo check:*)",
       "Bash(grep:*)",
       "Bash(bd blocked)",
-      "Skill(ralph-loop:help)"
+      "Skill(ralph-loop:help)",
+      "Skill(ralph-loop:ralph-loop)",
+      "Bash(bd dep tree:*)"
     ],
     "deny": [],
     "ask": []
