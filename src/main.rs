@@ -8,8 +8,8 @@ mod http_router;
 mod mcp;
 mod tag_extractor;
 
-use clap::Parser;
-use cli::Args;
+use clap::FromArgMatches;
+use cli::{ServeCommand, ServerMode};
 use mcp::TaskSearchService;
 use rmcp::{
     ServiceExt,
@@ -50,119 +50,105 @@ async fn tools_handler() -> impl axum::response::IntoResponse {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Check if using CLI router commands or MCP server mode
-    // CLI router handles regular commands (tasks, tags, etc.)
-    // Args handles MCP server modes (--mcp-stdio, --mcp-http)
-    let first_arg = std::env::args().nth(1);
-    let is_mcp_mode = first_arg
-        .as_ref()
-        .map(|arg| arg.starts_with("--mcp-"))
-        .unwrap_or(false);
+    use capabilities::CapabilityRegistry;
+    use config::Config;
+    use std::path::PathBuf;
 
-    // Use CLI router unless explicitly in MCP mode
-    if !is_mcp_mode {
-        use capabilities::CapabilityRegistry;
-        use config::Config;
-        use std::path::PathBuf;
-        use std::sync::Arc;
+    // Create a minimal registry (base path will come from the parsed request or command)
+    let config = Arc::new(Config::default());
+    let registry = CapabilityRegistry::new(PathBuf::from("."), config);
 
-        // Create a minimal registry (base path will come from the parsed request)
-        let config = Arc::new(Config::default());
-        let registry = CapabilityRegistry::new(PathBuf::from("."), config);
+    // Get CLI operations including serve
+    let mut operations = registry.create_cli_operations();
+    operations.push(Arc::new(cli::ServeOperation::new()));
 
-        // Get CLI operations
-        let operations = registry.create_cli_operations();
+    // Build CLI from operations
+    let cli = cli_router::build_cli(&operations);
 
-        // Build CLI from operations
-        let cli = cli_router::build_cli(&operations);
+    // Parse command line arguments
+    let matches = cli.get_matches();
 
-        // Parse command line arguments using the new CLI structure
-        let matches = cli.get_matches();
+    // Check if this is the serve command
+    if let Some(("serve", serve_matches)) = matches.subcommand() {
+        // Parse the serve command
+        let serve_cmd = ServeCommand::from_arg_matches(serve_matches)?;
+        let base_path = serve_cmd.mode.path().clone();
 
-        // Execute via router
-        return cli_router::execute_cli(&operations, matches, &registry).await;
-    }
+        match serve_cmd.mode {
+            ServerMode::Stdio { .. } => {
+                // Start stdio MCP server
+                let service = TaskSearchService::new(base_path).serve(stdio()).await?;
 
-    let args = Args::parse();
+                // Wait for either service completion or Ctrl-C
+                tokio::select! {
+                    result = service.waiting() => {
+                        result?;
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        eprintln!("Received Ctrl-C, shutting down...");
+                    }
+                }
 
-    // Validate arguments
-    args.validate()?;
-
-    // Get the base path for MCP modes or CLI mode
-    let base_path = args.get_base_path();
-
-    // If stdio MCP mode is enabled, start the stdio MCP server
-    if args.mcp_stdio {
-        let service = TaskSearchService::new(base_path).serve(stdio()).await?;
-
-        // Wait for either service completion or Ctrl-C
-        tokio::select! {
-            result = service.waiting() => {
-                result?;
+                return Ok(());
             }
-            _ = tokio::signal::ctrl_c() => {
-                eprintln!("Received Ctrl-C, shutting down...");
+            ServerMode::Http { port, .. } => {
+                // Start HTTP MCP server
+                use rmcp::transport::streamable_http_server::StreamableHttpService;
+
+                let base_path_clone = base_path.clone();
+                let service = StreamableHttpService::new(
+                    move || Ok(TaskSearchService::new(base_path_clone.clone())),
+                    Arc::new(LocalSessionManager::default()),
+                    Default::default(),
+                );
+
+                // Load configuration from base path
+                let config = Arc::new(config::Config::load_from_base_path(&base_path));
+
+                // Create capability registry
+                let capability_registry = Arc::new(capabilities::CapabilityRegistry::new(
+                    base_path.clone(),
+                    config.clone(),
+                ));
+
+                // Create router with base routes
+                let mut router = axum::Router::new()
+                    .nest_service("/mcp", service)
+                    .route("/tools", axum::routing::get(tools_handler));
+
+                // Automatically register all HTTP operations
+                for operation in capability_registry.create_http_operations() {
+                    router = http_router::register_operation(router, operation);
+                }
+
+                let addr = format!("0.0.0.0:{}", port);
+                let listener = tokio::net::TcpListener::bind(&addr).await?;
+
+                eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
+                eprintln!("Tools documentation available at http://{}/tools", addr);
+                eprintln!("REST API available at:");
+
+                // Dynamically print all registered operations
+                for operation in capability_registry.create_http_operations() {
+                    eprintln!(
+                        "  - GET/POST http://{}{} ({})",
+                        addr,
+                        operation.path(),
+                        operation.description()
+                    );
+                }
+
+                axum::serve(listener, router)
+                    .with_graceful_shutdown(async {
+                        tokio::signal::ctrl_c().await.ok();
+                    })
+                    .await?;
+
+                return Ok(());
             }
         }
-
-        return Ok(());
     }
 
-    // If HTTP MCP mode is enabled, start the HTTP MCP server
-    if args.mcp_http {
-        use rmcp::transport::streamable_http_server::StreamableHttpService;
-
-        let base_path_clone = base_path.clone();
-        let service = StreamableHttpService::new(
-            move || Ok(TaskSearchService::new(base_path_clone.clone())),
-            Arc::new(LocalSessionManager::default()),
-            Default::default(),
-        );
-
-        // Load configuration from base path
-        let config = Arc::new(config::Config::load_from_base_path(&base_path));
-
-        // Create capability registry
-        let capability_registry = Arc::new(capabilities::CapabilityRegistry::new(
-            base_path.clone(),
-            config.clone(),
-        ));
-
-        // Create router with base routes
-        let mut router = axum::Router::new()
-            .nest_service("/mcp", service)
-            .route("/tools", axum::routing::get(tools_handler));
-
-        // Automatically register all HTTP operations
-        for operation in capability_registry.create_http_operations() {
-            router = http_router::register_operation(router, operation);
-        }
-        let addr = format!("0.0.0.0:{}", args.port);
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
-
-        eprintln!("HTTP MCP server listening on http://{}/mcp", addr);
-        eprintln!("Tools documentation available at http://{}/tools", addr);
-        eprintln!("REST API available at:");
-
-        // Dynamically print all registered operations
-        for operation in capability_registry.create_http_operations() {
-            eprintln!(
-                "  - GET/POST http://{}{} ({})",
-                addr,
-                operation.path(),
-                operation.description()
-            );
-        }
-
-        axum::serve(listener, router)
-            .with_graceful_shutdown(async {
-                tokio::signal::ctrl_c().await.ok();
-            })
-            .await?;
-
-        return Ok(());
-    }
-
-    // If we reach here, neither MCP mode was selected (should be caught by validation)
-    Err("Invalid mode: must use either --mcp-stdio or --mcp-http".into())
+    // For all other commands, use the cli_router
+    cli_router::execute_cli(&operations, matches, &registry).await
 }

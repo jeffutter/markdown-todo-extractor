@@ -1,43 +1,75 @@
-use clap::Parser;
+use crate::capabilities::CapabilityRegistry;
+use crate::cli_router::CliOperation;
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand as ClapSubcommand};
 use std::path::PathBuf;
 
-/// Commandline Args for MCP server modes
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-pub struct Args {
+/// Server mode options for MCP
+#[derive(Debug, Clone, ClapSubcommand)]
+pub enum ServerMode {
     /// Start MCP server on stdin/stdout
-    #[arg(long)]
-    pub mcp_stdio: bool,
+    Stdio {
+        /// Path to file or folder to scan (base path for server)
+        #[arg(index = 1, required = true)]
+        path: PathBuf,
+    },
+    /// Start MCP server on HTTP
+    Http {
+        /// Path to file or folder to scan (base path for server)
+        #[arg(index = 1, required = true)]
+        path: PathBuf,
 
-    /// Start MCP server on HTTP (default port: 8000)
-    #[arg(long)]
-    pub mcp_http: bool,
-
-    /// Port for HTTP MCP server (requires --mcp-http)
-    #[arg(long, default_value = "8000")]
-    pub port: u16,
-
-    /// Path to file or folder to scan (used in MCP server mode as base path)
-    #[arg(global = true)]
-    pub path: Option<PathBuf>,
+        /// Port for HTTP MCP server
+        #[arg(long, default_value = "8000")]
+        port: u16,
+    },
 }
 
-impl Args {
-    pub fn validate(&self) -> Result<(), String> {
-        // Check that only one MCP mode is selected
-        if self.mcp_stdio && self.mcp_http {
-            return Err("Cannot use both --mcp-stdio and --mcp-http at the same time".to_string());
+impl ServerMode {
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            ServerMode::Stdio { path } => path,
+            ServerMode::Http { path, .. } => path,
         }
+    }
+}
 
-        // Check that at least one MCP mode is selected
-        if !self.mcp_stdio && !self.mcp_http {
-            return Err("Must specify either --mcp-stdio or --mcp-http. For CLI commands, use: tasks, tags, list-tags, search-tags, list-files, or read-file.".to_string());
-        }
+/// Start MCP or HTTP server
+#[derive(Parser, Debug)]
+#[command(name = "serve", about = "Start MCP server (stdio or HTTP)")]
+pub struct ServeCommand {
+    /// Server mode (stdio or http)
+    #[command(subcommand)]
+    pub mode: ServerMode,
+}
 
-        Ok(())
+/// CliOperation implementation for serve command
+pub struct ServeOperation;
+
+impl ServeOperation {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait::async_trait]
+impl CliOperation for ServeOperation {
+    fn command_name(&self) -> &'static str {
+        "serve"
     }
 
-    pub fn get_base_path(&self) -> PathBuf {
-        self.path.clone().unwrap_or_else(|| PathBuf::from("."))
+    fn get_command(&self) -> clap::Command {
+        ServeCommand::command()
+    }
+
+    async fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        _registry: &CapabilityRegistry,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let _cmd = ServeCommand::from_arg_matches(matches)?;
+
+        // This will be handled specially in main.rs since it needs to start a server
+        // For now, return an error indicating this should be handled specially
+        Err("serve command must be handled by main.rs".into())
     }
 }
