@@ -419,3 +419,559 @@ impl Default for TaskExtractor {
         Self::new(Arc::new(Config::default()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn create_test_extractor() -> TaskExtractor {
+        TaskExtractor::new(Arc::new(Config::default()))
+    }
+
+    mod parse_task_line {
+        use super::*;
+
+        #[test]
+        fn test_unchecked_task() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("- [ ] Test task", &path, 1);
+
+            assert!(task.is_some());
+            let task = task.unwrap();
+            assert_eq!(task.status, "incomplete");
+            assert_eq!(task.content, "Test task");
+            assert_eq!(task.line_number, 1);
+        }
+
+        #[test]
+        fn test_completed_task() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("- [x] Completed task", &path, 1);
+
+            assert!(task.is_some());
+            let task = task.unwrap();
+            assert_eq!(task.status, "completed");
+            assert_eq!(task.content, "Completed task");
+        }
+
+        #[test]
+        fn test_completed_task_uppercase() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("- [X] Completed task", &path, 1);
+
+            assert!(task.is_some());
+            let task = task.unwrap();
+            assert_eq!(task.status, "completed");
+            assert_eq!(task.content, "Completed task");
+        }
+
+        #[test]
+        fn test_cancelled_task() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("- [-] Cancelled task", &path, 1);
+
+            assert!(task.is_some());
+            let task = task.unwrap();
+            assert_eq!(task.status, "cancelled");
+            assert_eq!(task.content, "Cancelled task");
+        }
+
+        #[test]
+        fn test_other_status_task() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("- [?] Unknown status", &path, 1);
+
+            assert!(task.is_some());
+            let task = task.unwrap();
+            assert_eq!(task.status, "other_?");
+            assert_eq!(task.content, "Unknown status");
+        }
+
+        #[test]
+        fn test_task_with_leading_whitespace() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("  - [ ] Indented task", &path, 1);
+
+            assert!(task.is_some());
+            let task = task.unwrap();
+            assert_eq!(task.status, "incomplete");
+            assert_eq!(task.content, "Indented task");
+        }
+
+        #[test]
+        fn test_not_a_task() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("This is just text", &path, 1);
+
+            assert!(task.is_none());
+        }
+
+        #[test]
+        fn test_regular_list_item() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let task = extractor.parse_task_line("- Regular list item", &path, 1);
+
+            assert!(task.is_none());
+        }
+    }
+
+    mod metadata_extraction {
+        use super::*;
+
+        #[test]
+        fn test_extract_single_tag() {
+            let extractor = create_test_extractor();
+            let tags = extractor.extract_tags("Test task #work");
+
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0], "work");
+        }
+
+        #[test]
+        fn test_extract_multiple_tags() {
+            let extractor = create_test_extractor();
+            let tags = extractor.extract_tags("Test task #work #urgent #project1");
+
+            assert_eq!(tags.len(), 3);
+            assert_eq!(tags[0], "work");
+            assert_eq!(tags[1], "urgent");
+            assert_eq!(tags[2], "project1");
+        }
+
+        #[test]
+        fn test_extract_tags_with_numbers() {
+            let extractor = create_test_extractor();
+            let tags = extractor.extract_tags("Task #project2024 #v1");
+
+            assert_eq!(tags.len(), 2);
+            assert_eq!(tags[0], "project2024");
+            assert_eq!(tags[1], "v1");
+        }
+
+        #[test]
+        fn test_no_tags() {
+            let extractor = create_test_extractor();
+            let tags = extractor.extract_tags("Task with no tags");
+
+            assert_eq!(tags.len(), 0);
+        }
+
+        #[test]
+        fn test_hashtag_alone_no_match() {
+            let extractor = create_test_extractor();
+            let tags = extractor.extract_tags("Task with # alone");
+
+            assert_eq!(tags.len(), 0);
+        }
+
+        #[test]
+        fn test_extract_due_date_emoji() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_due_date("Task 📅 2025-12-10");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-10");
+        }
+
+        #[test]
+        fn test_extract_due_date_text() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_due_date("Task due: 2025-12-10");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-10");
+        }
+
+        #[test]
+        fn test_extract_due_date_function() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_due_date("Task @due(2025-12-10)");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-10");
+        }
+
+        #[test]
+        fn test_no_due_date() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_due_date("Task with no date");
+
+            assert!(date.is_none());
+        }
+
+        #[test]
+        fn test_extract_created_date_emoji() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_created_date("Task ➕ 2025-12-01");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-01");
+        }
+
+        #[test]
+        fn test_extract_created_date_text() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_created_date("Task created: 2025-12-01");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-01");
+        }
+
+        #[test]
+        fn test_extract_completed_date_emoji() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_completed_date("Task ✅ 2025-12-15");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-15");
+        }
+
+        #[test]
+        fn test_extract_completed_date_text() {
+            let extractor = create_test_extractor();
+            let date = extractor.extract_completed_date("Task completed: 2025-12-15");
+
+            assert!(date.is_some());
+            assert_eq!(date.unwrap(), "2025-12-15");
+        }
+
+        #[test]
+        fn test_extract_priority_urgent_emoji() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task ⏫");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "urgent");
+        }
+
+        #[test]
+        fn test_extract_priority_high_emoji() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task 🔼");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "high");
+        }
+
+        #[test]
+        fn test_extract_priority_low_emoji() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task 🔽");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "low");
+        }
+
+        #[test]
+        fn test_extract_priority_lowest_emoji() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task ⏬");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "lowest");
+        }
+
+        #[test]
+        fn test_extract_priority_text_high() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task priority: high");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "high");
+        }
+
+        #[test]
+        fn test_extract_priority_text_medium() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task priority: medium");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "medium");
+        }
+
+        #[test]
+        fn test_extract_priority_text_low() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task priority: low");
+
+            assert!(priority.is_some());
+            assert_eq!(priority.unwrap(), "low");
+        }
+
+        #[test]
+        fn test_no_priority() {
+            let extractor = create_test_extractor();
+            let priority = extractor.extract_priority("Task with no priority");
+
+            assert!(priority.is_none());
+        }
+    }
+
+    mod clean_content {
+        use super::*;
+
+        #[test]
+        fn test_removes_due_date_emoji() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task 📅 2025-12-10");
+
+            assert_eq!(cleaned, "Task");
+        }
+
+        #[test]
+        fn test_removes_due_date_text() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task due: 2025-12-10");
+
+            assert_eq!(cleaned, "Task");
+        }
+
+        #[test]
+        fn test_removes_tags_preserved() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task #work #urgent");
+
+            // Tags are NOT removed by clean_content - they're part of the task description
+            assert_eq!(cleaned, "Task #work #urgent");
+        }
+
+        #[test]
+        fn test_removes_priority_emoji() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task ⏫");
+
+            assert_eq!(cleaned, "Task");
+        }
+
+        #[test]
+        fn test_removes_priority_text() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task priority: high");
+
+            assert_eq!(cleaned, "Task");
+        }
+
+        #[test]
+        fn test_removes_created_date() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task ➕ 2025-12-01");
+
+            assert_eq!(cleaned, "Task");
+        }
+
+        #[test]
+        fn test_removes_completed_date() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task ✅ 2025-12-15");
+
+            assert_eq!(cleaned, "Task");
+        }
+
+        #[test]
+        fn test_removes_timestamp() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("10:30 Task description");
+
+            assert_eq!(cleaned, "Task description");
+        }
+
+        #[test]
+        fn test_removes_multiple_metadata() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task 📅 2025-12-10 ⏫ #work");
+
+            assert_eq!(cleaned, "Task #work");
+        }
+
+        #[test]
+        fn test_cleans_extra_whitespace() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Task   with    extra    spaces");
+
+            assert_eq!(cleaned, "Task with extra spaces");
+        }
+
+        #[test]
+        fn test_preserves_task_text() {
+            let extractor = create_test_extractor();
+            let cleaned = extractor.clean_content("Write documentation for API");
+
+            assert_eq!(cleaned, "Write documentation for API");
+        }
+    }
+
+    mod sub_items {
+        use super::*;
+
+        #[test]
+        fn test_is_sub_item_with_indent() {
+            let extractor = create_test_extractor();
+            let parent = "- [ ] Main task";
+            let sub = "  - Sub item";
+
+            assert!(extractor.is_sub_item(sub, parent));
+        }
+
+        #[test]
+        fn test_is_sub_item_with_checkbox() {
+            let extractor = create_test_extractor();
+            let parent = "- [ ] Main task";
+            let sub = "  - [ ] Sub task";
+
+            assert!(extractor.is_sub_item(sub, parent));
+        }
+
+        #[test]
+        fn test_is_not_sub_item_same_indent() {
+            let extractor = create_test_extractor();
+            let parent = "- [ ] Main task";
+            let other = "- [ ] Another task";
+
+            assert!(!extractor.is_sub_item(other, parent));
+        }
+
+        #[test]
+        fn test_is_not_sub_item_empty_line() {
+            let extractor = create_test_extractor();
+            let parent = "- [ ] Main task";
+            let empty = "";
+
+            assert!(!extractor.is_sub_item(empty, parent));
+        }
+
+        #[test]
+        fn test_is_sub_item_with_asterisk() {
+            let extractor = create_test_extractor();
+            let parent = "- [ ] Main task";
+            let sub = "  * Sub item";
+
+            assert!(extractor.is_sub_item(sub, parent));
+        }
+
+        #[test]
+        fn test_parse_sub_item_regular_list() {
+            let extractor = create_test_extractor();
+            let sub = "  - Sub item text";
+
+            let parsed = extractor.parse_sub_item(sub);
+            assert!(parsed.is_some());
+            assert_eq!(parsed.unwrap(), "Sub item text");
+        }
+
+        #[test]
+        fn test_parse_sub_item_checkbox() {
+            let extractor = create_test_extractor();
+            let sub = "  - [ ] Sub task text";
+
+            let parsed = extractor.parse_sub_item(sub);
+            assert!(parsed.is_some());
+            assert_eq!(parsed.unwrap(), "Sub task text");
+        }
+
+        #[test]
+        fn test_parse_sub_item_with_asterisk() {
+            let extractor = create_test_extractor();
+            let sub = "  * Sub item with asterisk";
+
+            let parsed = extractor.parse_sub_item(sub);
+            assert!(parsed.is_some());
+            assert_eq!(parsed.unwrap(), "Sub item with asterisk");
+        }
+
+        #[test]
+        fn test_parse_sub_item_completed_checkbox() {
+            let extractor = create_test_extractor();
+            let sub = "  - [x] Completed sub task";
+
+            let parsed = extractor.parse_sub_item(sub);
+            assert!(parsed.is_some());
+            assert_eq!(parsed.unwrap(), "Completed sub task");
+        }
+
+        #[test]
+        fn test_parse_sub_item_not_list() {
+            let extractor = create_test_extractor();
+            let sub = "  Just some text";
+
+            let parsed = extractor.parse_sub_item(sub);
+            assert!(parsed.is_none());
+        }
+    }
+
+    mod integration {
+        use super::*;
+
+        #[test]
+        fn test_full_task_with_all_metadata() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let line = "- [ ] Write tests #testing ⏫ 📅 2025-12-10 ➕ 2025-12-01";
+
+            let task = extractor.parse_task_line(line, &path, 5);
+            assert!(task.is_some());
+
+            let task = task.unwrap();
+            assert_eq!(task.status, "incomplete");
+            assert_eq!(task.content, "Write tests #testing");
+            assert_eq!(task.line_number, 5);
+            assert_eq!(task.tags, vec!["testing"]);
+            assert_eq!(task.priority, Some("urgent".to_string()));
+            assert_eq!(task.due_date, Some("2025-12-10".to_string()));
+            assert_eq!(task.created_date, Some("2025-12-01".to_string()));
+        }
+
+        #[test]
+        fn test_completed_task_with_completion_date() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let line = "- [x] Finished task ✅ 2025-12-15 #done";
+
+            let task = extractor.parse_task_line(line, &path, 1);
+            assert!(task.is_some());
+
+            let task = task.unwrap();
+            assert_eq!(task.status, "completed");
+            assert_eq!(task.content, "Finished task #done");
+            assert_eq!(task.completed_date, Some("2025-12-15".to_string()));
+            assert_eq!(task.tags, vec!["done"]);
+        }
+
+        #[test]
+        fn test_task_preserves_raw_line() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("test.md");
+            let line = "- [ ] Task with metadata 📅 2025-12-10 #work";
+
+            let task = extractor.parse_task_line(line, &path, 1);
+            assert!(task.is_some());
+
+            let task = task.unwrap();
+            assert_eq!(task.raw_line, line);
+            // Content should be cleaned
+            assert_eq!(task.content, "Task with metadata #work");
+        }
+
+        #[test]
+        fn test_file_path_and_name() {
+            let extractor = create_test_extractor();
+            let path = PathBuf::from("/path/to/tasks.md");
+            let line = "- [ ] Test task";
+
+            let task = extractor.parse_task_line(line, &path, 1);
+            assert!(task.is_some());
+
+            let task = task.unwrap();
+            assert_eq!(task.file_name, "tasks.md");
+            assert!(task.file_path.contains("tasks.md"));
+        }
+    }
+}
