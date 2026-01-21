@@ -1,6 +1,6 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
-use crate::error::{internal_error, invalid_params};
+use crate::error::internal_error;
 use crate::extractor::{Task, TaskExtractor};
 use crate::filter::{FilterOptions, filter_tasks};
 use clap::{CommandFactory, FromArgMatches, Parser};
@@ -180,16 +180,8 @@ impl crate::http_router::HttpOperation for SearchTasksOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        // Deserialize JSON to request type
-        let request: SearchTasksRequest = serde_json::from_value(json)
-            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
-
-        // Execute the capability method
-        let response = self.capability.search_tasks(request).await?;
-
-        // Serialize response to JSON
-        serde_json::to_value(response)
-            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
+        crate::http_router::execute_json_operation(json, |req| self.capability.search_tasks(req))
+            .await
     }
 }
 

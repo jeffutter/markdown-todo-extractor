@@ -1,6 +1,6 @@
 use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
-use crate::error::{internal_error, invalid_params};
+use crate::error::internal_error;
 use crate::tag_extractor::{TagCount, TagExtractor, TaggedFile};
 use clap::{CommandFactory, FromArgMatches};
 use rmcp::model::ErrorData;
@@ -275,13 +275,8 @@ impl crate::http_router::HttpOperation for ExtractTagsOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ExtractTagsRequest = serde_json::from_value(json)
-            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
-
-        let response = self.capability.extract_tags(request).await?;
-
-        serde_json::to_value(response)
-            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
+        crate::http_router::execute_json_operation(json, |req| self.capability.extract_tags(req))
+            .await
     }
 }
 
@@ -307,13 +302,7 @@ impl crate::http_router::HttpOperation for ListTagsOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ListTagsRequest = serde_json::from_value(json)
-            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
-
-        let response = self.capability.list_tags(request).await?;
-
-        serde_json::to_value(response)
-            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
+        crate::http_router::execute_json_operation(json, |req| self.capability.list_tags(req)).await
     }
 }
 
@@ -339,13 +328,8 @@ impl crate::http_router::HttpOperation for SearchByTagsOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: SearchByTagsRequest = serde_json::from_value(json)
-            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
-
-        let response = self.capability.search_by_tags(request).await?;
-
-        serde_json::to_value(response)
-            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
+        crate::http_router::execute_json_operation(json, |req| self.capability.search_by_tags(req))
+            .await
     }
 }
 

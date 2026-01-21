@@ -258,13 +258,8 @@ impl crate::http_router::HttpOperation for ListFilesOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ListFilesRequest = serde_json::from_value(json)
-            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
-
-        let response = self.capability.list_files(request).await?;
-
-        serde_json::to_value(response)
-            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
+        crate::http_router::execute_json_operation(json, |req| self.capability.list_files(req))
+            .await
     }
 }
 
@@ -290,13 +285,7 @@ impl crate::http_router::HttpOperation for ReadFileOperation {
     }
 
     async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        let request: ReadFileRequest = serde_json::from_value(json)
-            .map_err(|e| invalid_params(format!("Invalid request parameters: {}", e)))?;
-
-        let response = self.capability.read_file(request).await?;
-
-        serde_json::to_value(response)
-            .map_err(|e| internal_error(format!("Failed to serialize response: {}", e)))
+        crate::http_router::execute_json_operation(json, |req| self.capability.read_file(req)).await
     }
 }
 
