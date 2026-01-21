@@ -104,16 +104,8 @@ impl TaskCapability {
         }
     }
 
-    /// Search for tasks with optional filtering (async version for MCP)
+    /// Search for tasks with optional filtering
     pub async fn search_tasks(
-        &self,
-        request: SearchTasksRequest,
-    ) -> CapabilityResult<TaskSearchResponse> {
-        self.search_tasks_sync(request)
-    }
-
-    /// Search for tasks with optional filtering (synchronous version for CLI)
-    pub fn search_tasks_sync(
         &self,
         request: SearchTasksRequest,
     ) -> CapabilityResult<TaskSearchResponse> {
@@ -211,6 +203,7 @@ impl crate::http_router::HttpOperation for SearchTasksOperation {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::cli_router::CliOperation for SearchTasksOperation {
     fn command_name(&self) -> &'static str {
         search_tasks::CLI_NAME
@@ -221,7 +214,7 @@ impl crate::cli_router::CliOperation for SearchTasksOperation {
         SearchTasksRequest::command()
     }
 
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         _registry: &crate::capabilities::CapabilityRegistry,
@@ -239,10 +232,10 @@ impl crate::cli_router::CliOperation for SearchTasksOperation {
             // Clear the path from request since it's not part of the search parameters
             let mut req_without_path = request;
             req_without_path.path = None;
-            capability.search_tasks_sync(req_without_path)?
+            capability.search_tasks(req_without_path).await?
         } else {
             // Use the registry's capability (for when path comes from registry)
-            self.capability.search_tasks_sync(request)?
+            self.capability.search_tasks(request).await?
         };
 
         // Serialize to JSON

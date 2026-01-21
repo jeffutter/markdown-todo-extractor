@@ -44,7 +44,8 @@
       "Bash(git commit:*)",
       "Bash(bd create:*)",
       "Bash(bd dep add:*)",
-      "Bash(bd comments --help:*)"
+      "Bash(bd comments --help:*)",
+      "Bash(cargo check:*)"
     ],
     "deny": [],
     "ask": []

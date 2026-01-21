@@ -239,129 +239,6 @@ impl FileCapability {
             file_name,
         })
     }
-
-    /// List the directory tree of the vault (synchronous version for CLI)
-    pub fn list_files_sync(
-        &self,
-        request: ListFilesRequest,
-    ) -> CapabilityResult<ListFilesResponse> {
-        // Resolve the search path
-        let search_path = if let Some(ref subpath) = request.path {
-            let requested_path = PathBuf::from(subpath);
-            self.base_path.join(&requested_path)
-        } else {
-            self.base_path.clone()
-        };
-
-        // Canonicalize paths for security check
-        let canonical_base = self.base_path.canonicalize().map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to resolve base path: {}", e)),
-            data: None,
-        })?;
-
-        let canonical_search = search_path.canonicalize().map_err(|_e| ErrorData {
-            code: ErrorCode(-32602),
-            message: Cow::from(format!("Path not found: {:?}", request.path)),
-            data: None,
-        })?;
-
-        // Security: Ensure path is within base directory
-        if !canonical_search.starts_with(&canonical_base) {
-            return Err(ErrorData {
-                code: ErrorCode(-32602),
-                message: Cow::from("Invalid path: path must be within the vault"),
-                data: None,
-            });
-        }
-
-        // Build the file tree
-        let include_sizes = request.include_sizes.unwrap_or(false);
-
-        let (root, total_files, total_directories) = build_file_tree(
-            &canonical_search,
-            &canonical_base,
-            &self.config,
-            0,
-            request.max_depth,
-            include_sizes,
-        )
-        .map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to build file tree: {}", e)),
-            data: None,
-        })?;
-
-        Ok(ListFilesResponse {
-            root,
-            total_files,
-            total_directories,
-        })
-    }
-
-    /// Read the full contents of a markdown file from the vault (synchronous version for CLI)
-    pub fn read_file_sync(&self, request: ReadFileRequest) -> CapabilityResult<ReadFileResponse> {
-        // 1. Construct the full path
-        let requested_path = PathBuf::from(&request.path);
-        let full_path = self.base_path.join(&requested_path);
-
-        // 2. Canonicalize paths for security check
-        let canonical_base = self.base_path.canonicalize().map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to resolve base path: {}", e)),
-            data: None,
-        })?;
-
-        let canonical_full = full_path.canonicalize().map_err(|_e| ErrorData {
-            code: ErrorCode(-32602), // Invalid params
-            message: Cow::from(format!("File not found: {}", request.path)),
-            data: None,
-        })?;
-
-        // 3. Security: Ensure path is within base directory
-        if !canonical_full.starts_with(&canonical_base) {
-            return Err(ErrorData {
-                code: ErrorCode(-32602),
-                message: Cow::from("Invalid path: path must be within the vault"),
-                data: None,
-            });
-        }
-
-        // 4. Validate it's a markdown file
-        if canonical_full.extension().and_then(|s| s.to_str()) != Some("md") {
-            return Err(ErrorData {
-                code: ErrorCode(-32602),
-                message: Cow::from("Invalid file type: only .md files can be read"),
-                data: None,
-            });
-        }
-
-        // 5. Read the file content
-        let content = std::fs::read_to_string(&canonical_full).map_err(|e| ErrorData {
-            code: ErrorCode(-32603),
-            message: Cow::from(format!("Failed to read file: {}", e)),
-            data: None,
-        })?;
-
-        // 6. Get relative path for response
-        let relative_path = canonical_full
-            .strip_prefix(&canonical_base)
-            .unwrap_or(&canonical_full)
-            .to_string_lossy()
-            .to_string();
-
-        let file_name = canonical_full
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        Ok(ReadFileResponse {
-            content,
-            file_path: relative_path,
-            file_name,
-        })
-    }
 }
 
 impl Capability for FileCapability {
@@ -450,6 +327,7 @@ impl crate::http_router::HttpOperation for ReadFileOperation {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::cli_router::CliOperation for ListFilesOperation {
     fn command_name(&self) -> &'static str {
         list_files::CLI_NAME
@@ -460,7 +338,7 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
         ListFilesRequest::command()
     }
 
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         _registry: &crate::capabilities::CapabilityRegistry,
@@ -474,9 +352,9 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
             let capability = FileCapability::new(path.clone(), config);
             let mut req_without_path = request;
             req_without_path.cli_path = None;
-            capability.list_files_sync(req_without_path)?
+            capability.list_files(req_without_path).await?
         } else {
-            self.capability.list_files_sync(request)?
+            self.capability.list_files(request).await?
         };
 
         // Serialize to JSON
@@ -484,6 +362,7 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::cli_router::CliOperation for ReadFileOperation {
     fn command_name(&self) -> &'static str {
         read_file::CLI_NAME
@@ -494,7 +373,7 @@ impl crate::cli_router::CliOperation for ReadFileOperation {
         ReadFileRequest::command()
     }
 
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         _registry: &crate::capabilities::CapabilityRegistry,
@@ -508,9 +387,9 @@ impl crate::cli_router::CliOperation for ReadFileOperation {
             let capability = FileCapability::new(vault_path.clone(), config);
             let mut req_without_path = request;
             req_without_path.cli_vault_path = None;
-            capability.read_file_sync(req_without_path)?
+            capability.read_file(req_without_path).await?
         } else {
-            self.capability.read_file_sync(request)?
+            self.capability.read_file(request).await?
         };
 
         // Serialize to JSON

@@ -149,16 +149,8 @@ impl TagCapability {
         }
     }
 
-    /// Extract all unique tags from YAML frontmatter (async version for MCP)
+    /// Extract all unique tags from YAML frontmatter
     pub async fn extract_tags(
-        &self,
-        request: ExtractTagsRequest,
-    ) -> CapabilityResult<ExtractTagsResponse> {
-        self.extract_tags_sync(request)
-    }
-
-    /// Extract all unique tags from YAML frontmatter (synchronous version for CLI)
-    pub fn extract_tags_sync(
         &self,
         request: ExtractTagsRequest,
     ) -> CapabilityResult<ExtractTagsResponse> {
@@ -182,13 +174,8 @@ impl TagCapability {
         Ok(ExtractTagsResponse { tags })
     }
 
-    /// List all tags with document counts (async version for MCP)
+    /// List all tags with document counts
     pub async fn list_tags(&self, request: ListTagsRequest) -> CapabilityResult<ListTagsResponse> {
-        self.list_tags_sync(request)
-    }
-
-    /// List all tags with document counts (synchronous version for CLI)
-    pub fn list_tags_sync(&self, request: ListTagsRequest) -> CapabilityResult<ListTagsResponse> {
         // Resolve search path
         let search_path = if let Some(ref subpath) = request.path {
             self.base_path.join(subpath)
@@ -233,16 +220,8 @@ impl TagCapability {
         })
     }
 
-    /// Search for files by YAML frontmatter tags (async version for MCP)
+    /// Search for files by YAML frontmatter tags
     pub async fn search_by_tags(
-        &self,
-        request: SearchByTagsRequest,
-    ) -> CapabilityResult<SearchByTagsResponse> {
-        self.search_by_tags_sync(request)
-    }
-
-    /// Search for files by YAML frontmatter tags (synchronous version for CLI)
-    pub fn search_by_tags_sync(
         &self,
         request: SearchByTagsRequest,
     ) -> CapabilityResult<SearchByTagsResponse> {
@@ -400,6 +379,7 @@ impl crate::http_router::HttpOperation for SearchByTagsOperation {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::cli_router::CliOperation for ExtractTagsOperation {
     fn command_name(&self) -> &'static str {
         extract_tags::CLI_NAME
@@ -410,7 +390,7 @@ impl crate::cli_router::CliOperation for ExtractTagsOperation {
         ExtractTagsRequest::command()
     }
 
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         _registry: &crate::capabilities::CapabilityRegistry,
@@ -424,9 +404,9 @@ impl crate::cli_router::CliOperation for ExtractTagsOperation {
             let capability = TagCapability::new(path.clone(), config);
             let mut req_without_path = request;
             req_without_path.path = None;
-            capability.extract_tags_sync(req_without_path)?
+            capability.extract_tags(req_without_path).await?
         } else {
-            self.capability.extract_tags_sync(request)?
+            self.capability.extract_tags(request).await?
         };
 
         // Serialize to JSON
@@ -434,6 +414,7 @@ impl crate::cli_router::CliOperation for ExtractTagsOperation {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::cli_router::CliOperation for ListTagsOperation {
     fn command_name(&self) -> &'static str {
         list_tags::CLI_NAME
@@ -444,7 +425,7 @@ impl crate::cli_router::CliOperation for ListTagsOperation {
         ListTagsRequest::command()
     }
 
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         _registry: &crate::capabilities::CapabilityRegistry,
@@ -458,9 +439,9 @@ impl crate::cli_router::CliOperation for ListTagsOperation {
             let capability = TagCapability::new(path.clone(), config);
             let mut req_without_path = request;
             req_without_path.cli_path = None;
-            capability.list_tags_sync(req_without_path)?
+            capability.list_tags(req_without_path).await?
         } else {
-            self.capability.list_tags_sync(request)?
+            self.capability.list_tags(request).await?
         };
 
         // Serialize to JSON
@@ -468,6 +449,7 @@ impl crate::cli_router::CliOperation for ListTagsOperation {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::cli_router::CliOperation for SearchByTagsOperation {
     fn command_name(&self) -> &'static str {
         search_by_tags::CLI_NAME
@@ -478,7 +460,7 @@ impl crate::cli_router::CliOperation for SearchByTagsOperation {
         SearchByTagsRequest::command()
     }
 
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         _registry: &crate::capabilities::CapabilityRegistry,
@@ -492,9 +474,9 @@ impl crate::cli_router::CliOperation for SearchByTagsOperation {
             let capability = TagCapability::new(path.clone(), config);
             let mut req_without_path = request;
             req_without_path.cli_path = None;
-            capability.search_by_tags_sync(req_without_path)?
+            capability.search_by_tags(req_without_path).await?
         } else {
-            self.capability.search_by_tags_sync(request)?
+            self.capability.search_by_tags(request).await?
         };
 
         // Serialize to JSON

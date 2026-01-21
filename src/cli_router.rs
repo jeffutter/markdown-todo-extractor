@@ -2,6 +2,7 @@ use crate::capabilities::CapabilityRegistry;
 use std::sync::Arc;
 
 /// Trait for CLI operations that can be automatically registered
+#[async_trait::async_trait]
 pub trait CliOperation: Send + Sync + 'static {
     /// The CLI command name (e.g., "tasks", "list-tags")
     fn command_name(&self) -> &'static str;
@@ -16,7 +17,7 @@ pub trait CliOperation: Send + Sync + 'static {
     /// - registry: The capability registry to use
     ///
     /// Returns JSON string for output
-    fn execute_from_args(
+    async fn execute_from_args(
         &self,
         matches: &clap::ArgMatches,
         registry: &CapabilityRegistry,
@@ -45,7 +46,7 @@ pub fn build_cli(operations: &[Arc<dyn CliOperation>]) -> clap::Command {
 }
 
 /// Execute CLI command by routing to the appropriate operation
-pub fn execute_cli(
+pub async fn execute_cli(
     operations: &[Arc<dyn CliOperation>],
     matches: clap::ArgMatches,
     registry: &CapabilityRegistry,
@@ -54,7 +55,7 @@ pub fn execute_cli(
     if let Some((subcommand_name, sub_matches)) = matches.subcommand() {
         for operation in operations {
             if operation.command_name() == subcommand_name {
-                let output = operation.execute_from_args(sub_matches, registry)?;
+                let output = operation.execute_from_args(sub_matches, registry).await?;
                 println!("{}", output);
                 return Ok(());
             }

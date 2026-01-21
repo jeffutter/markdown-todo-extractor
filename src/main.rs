@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let matches = cli.get_matches();
 
         // Execute via router
-        return cli_router::execute_cli(&operations, matches, &registry);
+        return cli_router::execute_cli(&operations, matches, &registry).await;
     }
 
     let args = Args::parse();
