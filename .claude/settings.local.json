@@ -45,7 +45,10 @@
       "Bash(bd create:*)",
       "Bash(bd dep add:*)",
       "Bash(bd comments --help:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(grep:*)",
+      "Bash(bd blocked)",
+      "Skill(ralph-loop:help)"
     ],
     "deny": [],
     "ask": []
