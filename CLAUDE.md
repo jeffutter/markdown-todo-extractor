@@ -274,3 +274,129 @@ To add a new capability (e.g., for notes, bookmarks, etc.):
    - Add CLI argument to `Args` in `src/cli.rs`
    - Add parameter to `SearchTasksRequest` in `src/mcp.rs`
    - Update capability method to handle new filter option
+
+### Adding CLI Automatic Registration for an Operation
+
+The project uses an automatic CLI registration system where operations implement the `CliOperation` trait to self-register their CLI commands. This eliminates boilerplate and makes operations self-contained.
+
+**Reference Implementation**: See `src/capabilities/tasks.rs` for `SearchTasksOperation`
+
+**Pattern Overview**:
+1. Request structs double as CLI argument definitions using `#[derive(Parser)]`
+2. Operations implement `CliOperation` to provide command metadata and execution
+3. Registry lists operations in `create_cli_operations()`
+4. Router automatically builds CLI and routes to operations
+
+**Step-by-Step Instructions**:
+
+1. **Add Parser derive to the request struct** (e.g., in `src/capabilities/tags.rs`):
+   ```rust
+   use clap::{CommandFactory, FromArgMatches, Parser};
+
+   #[derive(Debug, Deserialize, Serialize, JsonSchema, Parser)]
+   #[command(name = "list-tags", about = "List all tags with document counts")]
+   pub struct ListTagsRequest {
+       /// Path to scan (CLI only - not used in HTTP/MCP)
+       #[arg(index = 1, required = true, help = "Path to file or folder to scan")]
+       #[serde(skip_serializing_if = "Option::is_none")]
+       #[schemars(skip)]
+       pub path: Option<PathBuf>,
+
+       #[arg(long, help = "Minimum document count to include a tag")]
+       #[schemars(description = "Minimum document count to include a tag")]
+       pub min_count: Option<usize>,
+
+       #[arg(long, help = "Maximum number of tags to return")]
+       #[schemars(description = "Maximum number of tags to return")]
+       pub limit: Option<usize>,
+   }
+   ```
+
+   **Key points**:
+   - Add `Parser` to derives (alongside existing `Deserialize`, `Serialize`, `JsonSchema`)
+   - Import `CommandFactory` and `FromArgMatches` traits
+   - Add `#[command(name = "...", about = "...")]` attribute
+   - Add `#[arg(...)]` attributes to each field
+   - Add CLI-specific `path` field if needed (with `#[serde(skip)]` and `#[schemars(skip)]`)
+
+2. **Implement CliOperation for the operation struct** (add to end of capability file):
+   ```rust
+   impl crate::cli_router::CliOperation for ListTagsOperation {
+       fn command_name(&self) -> &'static str {
+           list_tags::CLI_NAME  // Use existing constant
+       }
+
+       fn get_command(&self) -> clap::Command {
+           // Get command from request struct's Parser derive
+           ListTagsRequest::command()
+       }
+
+       fn execute_from_args(
+           &self,
+           matches: &clap::ArgMatches,
+           _registry: &crate::capabilities::CapabilityRegistry,
+       ) -> Result<String, Box<dyn std::error::Error>> {
+           // Parse request from ArgMatches
+           let request = ListTagsRequest::from_arg_matches(matches)?;
+
+           // Handle CLI-specific path if present
+           let response = if let Some(ref path) = request.path {
+               let config = Arc::new(Config::load_from_base_path(path.as_path()));
+               let capability = TagCapability::new(path.clone(), config);
+               let mut req_without_path = request;
+               req_without_path.path = None;
+               capability.list_tags_sync(req_without_path)?
+           } else {
+               self.capability.list_tags_sync(request)?
+           };
+
+           // Serialize to JSON
+           Ok(serde_json::to_string_pretty(&response)?)
+       }
+   }
+   ```
+
+   **Key points**:
+   - Use existing `CLI_NAME` constant from operation metadata module
+   - Call `RequestStruct::command()` to get clap command definition
+   - Use `from_arg_matches()` to parse arguments
+   - Handle CLI-specific path field by creating temporary capability if needed
+   - Return JSON string for output
+
+3. **Register in `create_cli_operations()`** (`src/capabilities/mod.rs`):
+   ```rust
+   pub fn create_cli_operations(&self) -> Vec<Arc<dyn crate::cli_router::CliOperation>> {
+       vec![
+           Arc::new(tasks::SearchTasksOperation::new(self.tasks())),
+           Arc::new(tags::ListTagsOperation::new(self.tags())),  // Add this line
+           // ... other operations
+       ]
+   }
+   ```
+
+4. **Remove manual routing** (if migrating from old CLI):
+   - Remove the command struct from `src/cli.rs` (e.g., `ListTagsCommand`)
+   - Remove the variant from `Commands` enum
+   - Remove the match arm in `run_cli()`
+
+**Path Handling Pattern**:
+- CLI operations receive a positional `path` argument (user-friendly)
+- This path is stored in a `path: Option<PathBuf>` field on the request struct
+- The field is marked with `#[serde(skip)]` and `#[schemars(skip)]` so it doesn't appear in HTTP/MCP APIs
+- In `execute_from_args()`, if path is present, create a temporary capability with that path
+- If path is absent, use the registry's default capability
+
+**Benefits**:
+- Reduces boilerplate from ~40 lines to ~15 lines per operation
+- Single source of truth (request struct defines CLI, HTTP, and MCP interface)
+- Type-safe argument parsing via clap
+- Self-contained operations (CLI definition lives with the operation)
+
+**Testing**:
+```bash
+# Test the command
+cargo run -- list-tags /path/to/vault --min-count 2
+
+# Test help text
+cargo run -- list-tags --help
+```
