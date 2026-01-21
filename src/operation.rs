@@ -43,4 +43,10 @@ pub trait Operation: Send + Sync + 'static {
         matches: &clap::ArgMatches,
         registry: &CapabilityRegistry,
     ) -> Result<String, Box<dyn Error>>;
+
+    /// Get the JSON Schema for this operation's input
+    ///
+    /// Returns the schema as a serde_json::Value for easy serialization.
+    /// Implementations should use schemars::schema_for! on their request type.
+    fn input_schema(&self) -> serde_json::Value;
 }

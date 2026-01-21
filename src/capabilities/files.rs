@@ -296,6 +296,11 @@ impl crate::operation::Operation for ListFilesOperation {
         // Return the visual tree directly
         Ok(response.visual_tree)
     }
+
+    fn input_schema(&self) -> serde_json::Value {
+        use schemars::schema_for;
+        serde_json::to_value(schema_for!(ListFilesRequest)).unwrap()
+    }
 }
 
 #[async_trait::async_trait]
@@ -345,6 +350,11 @@ impl crate::operation::Operation for ReadFileOperation {
 
         // Serialize to JSON
         Ok(serde_json::to_string_pretty(&response)?)
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        use schemars::schema_for;
+        serde_json::to_value(schema_for!(ReadFileRequest)).unwrap()
     }
 }
 

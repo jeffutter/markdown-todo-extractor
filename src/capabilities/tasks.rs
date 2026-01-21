@@ -210,4 +210,9 @@ impl crate::operation::Operation for SearchTasksOperation {
         // Serialize to JSON
         Ok(serde_json::to_string_pretty(&response.tasks)?)
     }
+
+    fn input_schema(&self) -> serde_json::Value {
+        use schemars::schema_for;
+        serde_json::to_value(schema_for!(SearchTasksRequest)).unwrap()
+    }
 }

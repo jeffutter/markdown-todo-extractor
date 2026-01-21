@@ -22,32 +22,28 @@ use std::sync::Arc;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-async fn tools_handler() -> impl axum::response::IntoResponse {
+async fn tools_handler(
+    axum::extract::State(registry): axum::extract::State<Arc<capabilities::CapabilityRegistry>>,
+) -> impl axum::response::IntoResponse {
     use axum::Json;
-    use capabilities::tags::ExtractTagsRequest;
-    use capabilities::tasks::SearchTasksRequest;
-    use schemars::schema_for;
     use serde_json::json;
 
-    let search_tasks_schema = schema_for!(SearchTasksRequest);
-    let extract_tags_schema = schema_for!(ExtractTagsRequest);
+    // Get all operations from the registry
+    let operations = registry.create_operations();
 
-    let tools = json!({
-        "tools": [
-            {
-                "name": "search_tasks",
-                "description": capabilities::tasks::search_tasks::DESCRIPTION,
-                "input_schema": search_tasks_schema
-            },
-            {
-                "name": "extract_tags",
-                "description": capabilities::tags::extract_tags::DESCRIPTION,
-                "input_schema": extract_tags_schema
-            }
-        ]
-    });
+    // Build the tools array dynamically from operations
+    let tools: Vec<_> = operations
+        .into_iter()
+        .map(|op| {
+            json!({
+                "name": op.name(),
+                "description": op.description(),
+                "input_schema": op.input_schema()
+            })
+        })
+        .collect();
 
-    Json(tools)
+    Json(json!({ "tools": tools }))
 }
 
 #[tokio::main]
@@ -113,10 +109,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     config.clone(),
                 ));
 
-                // Create router with base routes
+                // Create router with base routes and state
                 let mut router = axum::Router::new()
                     .nest_service("/mcp", service)
-                    .route("/tools", axum::routing::get(tools_handler));
+                    .route("/tools", axum::routing::get(tools_handler))
+                    .with_state(capability_registry.clone());
 
                 // Automatically register all HTTP operations
                 for operation in capability_registry.create_operations() {
@@ -140,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
 
-                axum::serve(listener, router)
+                axum::serve(listener, router.into_make_service())
                     .with_graceful_shutdown(async {
                         tokio::signal::ctrl_c().await.ok();
                     })

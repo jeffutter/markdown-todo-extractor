@@ -90,4 +90,13 @@ impl crate::operation::Operation for ServeOperation {
         // For now, return an error indicating this should be handled specially
         Err("serve command must be handled by main.rs".into())
     }
+
+    fn input_schema(&self) -> serde_json::Value {
+        // ServeOperation is CLI-only and doesn't have a meaningful JSON schema
+        // Return a minimal empty object schema
+        serde_json::json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
 }
