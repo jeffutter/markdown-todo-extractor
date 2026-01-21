@@ -7,6 +7,7 @@ mod extractor;
 mod filter;
 mod http_router;
 mod mcp;
+mod operation;
 mod tag_extractor;
 
 use clap::FromArgMatches;
@@ -59,8 +60,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(Config::default());
     let registry = CapabilityRegistry::new(PathBuf::from("."), config);
 
-    // Get CLI operations including serve
-    let mut operations = registry.create_cli_operations();
+    // Get all operations including serve
+    let mut operations = registry.create_operations();
     operations.push(Arc::new(cli::ServeOperation::new()));
 
     // Build CLI from operations
@@ -118,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .route("/tools", axum::routing::get(tools_handler));
 
                 // Automatically register all HTTP operations
-                for operation in capability_registry.create_http_operations() {
+                for operation in capability_registry.create_operations() {
                     router = http_router::register_operation(router, operation);
                 }
 
@@ -130,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("REST API available at:");
 
                 // Dynamically print all registered operations
-                for operation in capability_registry.create_http_operations() {
+                for operation in capability_registry.create_operations() {
                     eprintln!(
                         "  - GET/POST http://{}{} ({})",
                         addr,

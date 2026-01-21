@@ -1,6 +1,6 @@
 use crate::capabilities::CapabilityRegistry;
-use crate::cli_router::CliOperation;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand as ClapSubcommand};
+use rmcp::model::ErrorData;
 use std::path::PathBuf;
 
 /// Server mode options for MCP
@@ -52,13 +52,31 @@ impl ServeOperation {
 }
 
 #[async_trait::async_trait]
-impl CliOperation for ServeOperation {
-    fn command_name(&self) -> &'static str {
+impl crate::operation::Operation for ServeOperation {
+    fn name(&self) -> &'static str {
         "serve"
+    }
+
+    fn path(&self) -> &'static str {
+        // ServeOperation is CLI-only and doesn't have an HTTP endpoint
+        ""
+    }
+
+    fn description(&self) -> &'static str {
+        "Start MCP server (stdio or HTTP)"
     }
 
     fn get_command(&self) -> clap::Command {
         ServeCommand::command()
+    }
+
+    async fn execute_json(&self, _json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        // ServeOperation is CLI-only and doesn't support JSON execution
+        Err(ErrorData {
+            code: rmcp::model::ErrorCode(-32601),
+            message: std::borrow::Cow::from("serve command is only available via CLI"),
+            data: None,
+        })
     }
 
     async fn execute_from_args(

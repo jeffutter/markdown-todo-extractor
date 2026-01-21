@@ -2,7 +2,6 @@ use crate::capabilities::{Capability, CapabilityResult};
 use crate::config::Config;
 use crate::error::{internal_error, invalid_params};
 use clap::{CommandFactory, FromArgMatches};
-use rmcp::model::ErrorData;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -236,7 +235,7 @@ impl Capability for FileCapability {
     }
 }
 
-/// HTTP operation struct for list_files
+/// Operation struct for list_files (HTTP, CLI, and MCP)
 pub struct ListFilesOperation {
     capability: Arc<FileCapability>,
 }
@@ -247,23 +246,7 @@ impl ListFilesOperation {
     }
 }
 
-#[async_trait::async_trait]
-impl crate::http_router::HttpOperation for ListFilesOperation {
-    fn path(&self) -> &'static str {
-        list_files::HTTP_PATH
-    }
-
-    fn description(&self) -> &'static str {
-        list_files::DESCRIPTION
-    }
-
-    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.list_files(req))
-            .await
-    }
-}
-
-/// HTTP operation struct for read_file
+/// Operation struct for read_file (HTTP, CLI, and MCP)
 pub struct ReadFileOperation {
     capability: Arc<FileCapability>,
 }
@@ -275,29 +258,30 @@ impl ReadFileOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::http_router::HttpOperation for ReadFileOperation {
+impl crate::operation::Operation for ListFilesOperation {
+    fn name(&self) -> &'static str {
+        list_files::CLI_NAME
+    }
+
     fn path(&self) -> &'static str {
-        read_file::HTTP_PATH
+        list_files::HTTP_PATH
     }
 
     fn description(&self) -> &'static str {
-        read_file::DESCRIPTION
-    }
-
-    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.read_file(req)).await
-    }
-}
-
-#[async_trait::async_trait]
-impl crate::cli_router::CliOperation for ListFilesOperation {
-    fn command_name(&self) -> &'static str {
-        list_files::CLI_NAME
+        list_files::DESCRIPTION
     }
 
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
         ListFilesRequest::command()
+    }
+
+    async fn execute_json(
+        &self,
+        json: serde_json::Value,
+    ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
+        crate::http_router::execute_json_operation(json, |req| self.capability.list_files(req))
+            .await
     }
 
     async fn execute_from_args(
@@ -325,14 +309,29 @@ impl crate::cli_router::CliOperation for ListFilesOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::cli_router::CliOperation for ReadFileOperation {
-    fn command_name(&self) -> &'static str {
+impl crate::operation::Operation for ReadFileOperation {
+    fn name(&self) -> &'static str {
         read_file::CLI_NAME
+    }
+
+    fn path(&self) -> &'static str {
+        read_file::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        read_file::DESCRIPTION
     }
 
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
         ReadFileRequest::command()
+    }
+
+    async fn execute_json(
+        &self,
+        json: serde_json::Value,
+    ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
+        crate::http_router::execute_json_operation(json, |req| self.capability.read_file(req)).await
     }
 
     async fn execute_from_args(

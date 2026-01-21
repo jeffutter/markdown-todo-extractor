@@ -158,7 +158,7 @@ fn get_default_limit() -> usize {
         .unwrap_or(50)
 }
 
-/// HTTP operation struct for search_tasks
+/// Operation struct for search_tasks (HTTP, CLI, and MCP)
 pub struct SearchTasksOperation {
     capability: Arc<TaskCapability>,
 }
@@ -170,7 +170,11 @@ impl SearchTasksOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::http_router::HttpOperation for SearchTasksOperation {
+impl crate::operation::Operation for SearchTasksOperation {
+    fn name(&self) -> &'static str {
+        search_tasks::CLI_NAME
+    }
+
     fn path(&self) -> &'static str {
         search_tasks::HTTP_PATH
     }
@@ -179,21 +183,14 @@ impl crate::http_router::HttpOperation for SearchTasksOperation {
         search_tasks::DESCRIPTION
     }
 
-    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.search_tasks(req))
-            .await
-    }
-}
-
-#[async_trait::async_trait]
-impl crate::cli_router::CliOperation for SearchTasksOperation {
-    fn command_name(&self) -> &'static str {
-        search_tasks::CLI_NAME
-    }
-
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
         SearchTasksRequest::command()
+    }
+
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
+        crate::http_router::execute_json_operation(json, |req| self.capability.search_tasks(req))
+            .await
     }
 
     async fn execute_from_args(

@@ -3,7 +3,6 @@ use crate::config::Config;
 use crate::error::internal_error;
 use crate::tag_extractor::{TagCount, TagExtractor, TaggedFile};
 use clap::{CommandFactory, FromArgMatches};
-use rmcp::model::ErrorData;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -253,7 +252,7 @@ impl Capability for TagCapability {
     }
 }
 
-/// HTTP operation struct for extract_tags
+/// Operation struct for extract_tags (HTTP, CLI, and MCP)
 pub struct ExtractTagsOperation {
     capability: Arc<TagCapability>,
 }
@@ -264,23 +263,7 @@ impl ExtractTagsOperation {
     }
 }
 
-#[async_trait::async_trait]
-impl crate::http_router::HttpOperation for ExtractTagsOperation {
-    fn path(&self) -> &'static str {
-        extract_tags::HTTP_PATH
-    }
-
-    fn description(&self) -> &'static str {
-        extract_tags::DESCRIPTION
-    }
-
-    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.extract_tags(req))
-            .await
-    }
-}
-
-/// HTTP operation struct for list_tags
+/// Operation struct for list_tags (HTTP, CLI, and MCP)
 pub struct ListTagsOperation {
     capability: Arc<TagCapability>,
 }
@@ -291,22 +274,7 @@ impl ListTagsOperation {
     }
 }
 
-#[async_trait::async_trait]
-impl crate::http_router::HttpOperation for ListTagsOperation {
-    fn path(&self) -> &'static str {
-        list_tags::HTTP_PATH
-    }
-
-    fn description(&self) -> &'static str {
-        list_tags::DESCRIPTION
-    }
-
-    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.list_tags(req)).await
-    }
-}
-
-/// HTTP operation struct for search_by_tags
+/// Operation struct for search_by_tags (HTTP, CLI, and MCP)
 pub struct SearchByTagsOperation {
     capability: Arc<TagCapability>,
 }
@@ -318,30 +286,30 @@ impl SearchByTagsOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::http_router::HttpOperation for SearchByTagsOperation {
+impl crate::operation::Operation for ExtractTagsOperation {
+    fn name(&self) -> &'static str {
+        extract_tags::CLI_NAME
+    }
+
     fn path(&self) -> &'static str {
-        search_by_tags::HTTP_PATH
+        extract_tags::HTTP_PATH
     }
 
     fn description(&self) -> &'static str {
-        search_by_tags::DESCRIPTION
-    }
-
-    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.search_by_tags(req))
-            .await
-    }
-}
-
-#[async_trait::async_trait]
-impl crate::cli_router::CliOperation for ExtractTagsOperation {
-    fn command_name(&self) -> &'static str {
-        extract_tags::CLI_NAME
+        extract_tags::DESCRIPTION
     }
 
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
         ExtractTagsRequest::command()
+    }
+
+    async fn execute_json(
+        &self,
+        json: serde_json::Value,
+    ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
+        crate::http_router::execute_json_operation(json, |req| self.capability.extract_tags(req))
+            .await
     }
 
     async fn execute_from_args(
@@ -369,14 +337,29 @@ impl crate::cli_router::CliOperation for ExtractTagsOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::cli_router::CliOperation for ListTagsOperation {
-    fn command_name(&self) -> &'static str {
+impl crate::operation::Operation for ListTagsOperation {
+    fn name(&self) -> &'static str {
         list_tags::CLI_NAME
+    }
+
+    fn path(&self) -> &'static str {
+        list_tags::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        list_tags::DESCRIPTION
     }
 
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
         ListTagsRequest::command()
+    }
+
+    async fn execute_json(
+        &self,
+        json: serde_json::Value,
+    ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
+        crate::http_router::execute_json_operation(json, |req| self.capability.list_tags(req)).await
     }
 
     async fn execute_from_args(
@@ -404,14 +387,30 @@ impl crate::cli_router::CliOperation for ListTagsOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::cli_router::CliOperation for SearchByTagsOperation {
-    fn command_name(&self) -> &'static str {
+impl crate::operation::Operation for SearchByTagsOperation {
+    fn name(&self) -> &'static str {
         search_by_tags::CLI_NAME
+    }
+
+    fn path(&self) -> &'static str {
+        search_by_tags::HTTP_PATH
+    }
+
+    fn description(&self) -> &'static str {
+        search_by_tags::DESCRIPTION
     }
 
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
         SearchByTagsRequest::command()
+    }
+
+    async fn execute_json(
+        &self,
+        json: serde_json::Value,
+    ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
+        crate::http_router::execute_json_operation(json, |req| self.capability.search_by_tags(req))
+            .await
     }
 
     async fn execute_from_args(

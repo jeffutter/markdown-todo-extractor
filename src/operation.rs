@@ -1,0 +1,46 @@
+use async_trait::async_trait;
+use rmcp::model::ErrorData;
+use std::error::Error;
+
+use crate::capabilities::CapabilityRegistry;
+
+/// Unified trait for operations that can be exposed via HTTP, CLI, or MCP
+///
+/// This trait combines the functionality of HttpOperation and CliOperation,
+/// providing a single interface for all operation types. Operations implement
+/// this trait once and can be automatically registered for all interfaces.
+#[async_trait]
+pub trait Operation: Send + Sync + 'static {
+    /// Unique identifier for the CLI command (e.g., "tasks", "list-tags")
+    fn name(&self) -> &'static str;
+
+    /// HTTP path for this operation (e.g., "/api/tasks")
+    fn path(&self) -> &'static str;
+
+    /// Human-readable description of the operation
+    fn description(&self) -> &'static str;
+
+    /// Get the clap Command definition for CLI parsing
+    ///
+    /// This is typically derived from the request struct's `Parser` implementation.
+    fn get_command(&self) -> clap::Command;
+
+    /// Execute the operation with JSON input (for HTTP/MCP)
+    ///
+    /// This method performs type erasure by accepting and returning JSON values,
+    /// allowing dynamic dispatch across different operation types.
+    async fn execute_json(&self, json: serde_json::Value) -> Result<serde_json::Value, ErrorData>;
+
+    /// Execute the operation from parsed CLI arguments
+    ///
+    /// This method receives:
+    /// - matches: The clap ArgMatches for this subcommand
+    /// - registry: The capability registry to use (for CLI path handling)
+    ///
+    /// Returns output string (typically JSON)
+    async fn execute_from_args(
+        &self,
+        matches: &clap::ArgMatches,
+        registry: &CapabilityRegistry,
+    ) -> Result<String, Box<dyn Error>>;
+}
