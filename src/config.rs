@@ -1,5 +1,6 @@
 use glob::Pattern;
 use serde::Deserialize;
+use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -16,12 +17,10 @@ impl Config {
             return Config::default();
         }
 
-        config::Config::builder()
-            .add_source(config::File::from(config_path))
-            .build()
-            .ok()
-            .and_then(|c| c.try_deserialize().ok())
-            .unwrap_or_default()
+        match fs::read_to_string(config_path) {
+            Ok(content) => toml::from_str(&content).unwrap_or_default(),
+            Err(_) => Config::default(),
+        }
     }
 
     /// Load configuration from the base path (looks for .markdown-todo-extractor.toml)
