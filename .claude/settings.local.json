@@ -50,7 +50,8 @@
       "Bash(bd blocked)",
       "Skill(ralph-loop:help)",
       "Skill(ralph-loop:ralph-loop)",
-      "Bash(bd dep tree:*)"
+      "Bash(bd dep tree:*)",
+      "Bash(bd label:*)"
     ],
     "deny": [],
     "ask": []
