@@ -3,10 +3,26 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone, Deserialize, Default)]
+pub fn default_daily_note_patterns() -> Vec<String> {
+    vec!["YYYY-MM-DD.md".to_string()]
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub exclude_paths: Vec<String>,
+
+    #[serde(default = "default_daily_note_patterns")]
+    pub daily_note_patterns: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            exclude_paths: Vec::new(),
+            daily_note_patterns: default_daily_note_patterns(),
+        }
+    }
 }
 
 impl Config {
@@ -37,8 +53,21 @@ impl Config {
 
     /// Merge configuration from environment variables
     /// MARKDOWN_TODO_EXTRACTOR_EXCLUDE_PATHS: comma-separated list of exclusion patterns
+    /// MARKDOWN_TODO_EXTRACTOR_DAILY_NOTE_PATTERNS: comma-separated list of daily note patterns
     fn merge_from_env(&mut self) {
         self.merge_from_env_var("MARKDOWN_TODO_EXTRACTOR_EXCLUDE_PATHS");
+
+        // Merge daily note patterns from environment variable
+        if let Ok(env_patterns) = std::env::var("MARKDOWN_TODO_EXTRACTOR_DAILY_NOTE_PATTERNS") {
+            let env_daily_patterns: Vec<String> = env_patterns
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            // Extend existing patterns with env var patterns
+            self.daily_note_patterns.extend(env_daily_patterns);
+        }
     }
 
     /// Merge configuration from a specific environment variable
@@ -87,6 +116,7 @@ mod tests {
     fn test_should_exclude_substring() {
         let config = Config {
             exclude_paths: vec!["Template".to_string(), "Recipes".to_string()],
+            daily_note_patterns: default_daily_note_patterns(),
         };
 
         assert!(config.should_exclude(&PathBuf::from("/vault/Templates/note.md")));
@@ -98,6 +128,7 @@ mod tests {
     fn test_should_exclude_glob_pattern() {
         let config = Config {
             exclude_paths: vec!["**/Template/**".to_string(), "**/Recipes/**".to_string()],
+            daily_note_patterns: default_daily_note_patterns(),
         };
 
         assert!(config.should_exclude(&PathBuf::from("/vault/Template/note.md")));
@@ -125,6 +156,7 @@ mod tests {
 
         let mut config = Config {
             exclude_paths: vec!["Template".to_string()],
+            daily_note_patterns: default_daily_note_patterns(),
         };
 
         config.merge_from_env_var(TEST_VAR);

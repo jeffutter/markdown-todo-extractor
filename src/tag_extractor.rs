@@ -653,6 +653,7 @@ tags:
         let temp_dir = TempDir::new().unwrap();
         let config = Arc::new(Config {
             exclude_paths: vec!["excluded".to_string()],
+            daily_note_patterns: crate::config::default_daily_note_patterns(),
         });
         let extractor = TagExtractor::new(config);
 

@@ -1,3 +1,4 @@
+pub mod daily_notes;
 pub mod files;
 pub mod tags;
 pub mod tasks;
@@ -7,6 +8,7 @@ use rmcp::model::ErrorData;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use self::daily_notes::DailyNoteCapability;
 use self::files::FileCapability;
 use self::tags::TagCapability;
 use self::tasks::TaskCapability;
@@ -23,15 +25,24 @@ pub struct CapabilityRegistry {
     task_capability: Arc<TaskCapability>,
     tag_capability: Arc<TagCapability>,
     file_capability: Arc<FileCapability>,
+    daily_note_capability: Arc<DailyNoteCapability>,
 }
 
 impl CapabilityRegistry {
     /// Create a new capability registry with all capabilities initialized
     pub fn new(base_path: PathBuf, config: Arc<Config>) -> Self {
+        let file_capability = Arc::new(FileCapability::new(base_path.clone(), Arc::clone(&config)));
+        let daily_note_capability = Arc::new(DailyNoteCapability::new(
+            base_path.clone(),
+            Arc::clone(&config),
+            Arc::clone(&file_capability),
+        ));
+
         Self {
             task_capability: Arc::new(TaskCapability::new(base_path.clone(), Arc::clone(&config))),
-            tag_capability: Arc::new(TagCapability::new(base_path.clone(), Arc::clone(&config))),
-            file_capability: Arc::new(FileCapability::new(base_path, config)),
+            tag_capability: Arc::new(TagCapability::new(base_path, Arc::clone(&config))),
+            file_capability,
+            daily_note_capability,
         }
     }
 
@@ -50,6 +61,11 @@ impl CapabilityRegistry {
         Arc::clone(&self.file_capability)
     }
 
+    /// Get the daily note capability
+    pub fn daily_notes(&self) -> Arc<DailyNoteCapability> {
+        Arc::clone(&self.daily_note_capability)
+    }
+
     /// Create all operations for automatic registration
     ///
     /// This is the single source of truth for which operations are exposed via HTTP, CLI, and MCP.
@@ -65,6 +81,11 @@ impl CapabilityRegistry {
             // File operations
             Arc::new(files::ListFilesOperation::new(self.files())),
             Arc::new(files::ReadFilesOperation::new(self.files())),
+            // Daily note operations
+            Arc::new(daily_notes::GetDailyNoteOperation::new(self.daily_notes())),
+            Arc::new(daily_notes::SearchDailyNotesOperation::new(
+                self.daily_notes(),
+            )),
         ]
     }
 }

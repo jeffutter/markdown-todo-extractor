@@ -1,4 +1,7 @@
 use crate::capabilities::CapabilityRegistry;
+use crate::capabilities::daily_notes::{
+    GetDailyNoteRequest, GetDailyNoteResponse, SearchDailyNotesRequest, SearchDailyNotesResponse,
+};
 use crate::capabilities::files::{
     ListFilesRequest, ListFilesResponse, ReadFilesRequest, ReadFilesResponse,
 };
@@ -130,6 +133,40 @@ impl TaskSearchService {
 
         Ok(Json(response))
     }
+
+    #[tool(
+        description = "Get the content of a daily note for a specific date. Returns the note content, file path, and whether the note was found. Missing notes return found: false (not an error)."
+    )]
+    async fn get_daily_note(
+        &self,
+        Parameters(request): Parameters<GetDailyNoteRequest>,
+    ) -> Result<Json<GetDailyNoteResponse>, ErrorData> {
+        // Delegate to DailyNoteCapability
+        let response = self
+            .capability_registry
+            .daily_notes()
+            .get_daily_note(request)
+            .await?;
+
+        Ok(Json(response))
+    }
+
+    #[tool(
+        description = "Search for daily notes within a date range. Returns metadata for all matching notes. Use get_daily_note to retrieve full content for specific notes."
+    )]
+    async fn search_daily_notes(
+        &self,
+        Parameters(request): Parameters<SearchDailyNotesRequest>,
+    ) -> Result<Json<SearchDailyNotesResponse>, ErrorData> {
+        // Delegate to DailyNoteCapability
+        let response = self
+            .capability_registry
+            .daily_notes()
+            .search_daily_notes(request)
+            .await?;
+
+        Ok(Json(response))
+    }
 }
 
 #[tool_handler]
@@ -143,13 +180,17 @@ impl ServerHandler for TaskSearchService {
              - {}\n\
              - {}\n\
              - {}\n\
+             - {}\n\
+             - {}\n\
              - {}",
             crate::capabilities::tasks::search_tasks::DESCRIPTION,
             crate::capabilities::tags::extract_tags::DESCRIPTION,
             crate::capabilities::tags::list_tags::DESCRIPTION,
             crate::capabilities::tags::search_by_tags::DESCRIPTION,
             crate::capabilities::files::list_files::DESCRIPTION,
-            crate::capabilities::files::read_files::DESCRIPTION
+            crate::capabilities::files::read_files::DESCRIPTION,
+            crate::capabilities::daily_notes::get_daily_note::DESCRIPTION,
+            crate::capabilities::daily_notes::search_daily_notes::DESCRIPTION
         );
 
         ServerInfo {

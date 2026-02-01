@@ -1,6 +1,6 @@
 ---
 id: markdown-todo-extractor-vw9
-status: open
+status: closed
 deps: [markdown-todo-extractor-718]
 links: []
 created: 2026-01-21T20:52:03.412562986-06:00
