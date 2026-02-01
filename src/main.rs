@@ -8,6 +8,7 @@ mod filter;
 mod http_router;
 mod mcp;
 mod operation;
+mod outline_extractor;
 mod tag_extractor;
 
 use clap::FromArgMatches;

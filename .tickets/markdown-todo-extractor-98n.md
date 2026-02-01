@@ -1,6 +1,6 @@
 ---
 id: markdown-todo-extractor-98n
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-01-21T20:52:03.839876249-06:00

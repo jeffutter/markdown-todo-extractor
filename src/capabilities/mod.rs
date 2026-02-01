@@ -1,5 +1,6 @@
 pub mod daily_notes;
 pub mod files;
+pub mod outline;
 pub mod tags;
 pub mod tasks;
 
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 use self::daily_notes::DailyNoteCapability;
 use self::files::FileCapability;
+use self::outline::OutlineCapability;
 use self::tags::TagCapability;
 use self::tasks::TaskCapability;
 
@@ -26,6 +28,7 @@ pub struct CapabilityRegistry {
     tag_capability: Arc<TagCapability>,
     file_capability: Arc<FileCapability>,
     daily_note_capability: Arc<DailyNoteCapability>,
+    outline_capability: Arc<OutlineCapability>,
 }
 
 impl CapabilityRegistry {
@@ -40,9 +43,10 @@ impl CapabilityRegistry {
 
         Self {
             task_capability: Arc::new(TaskCapability::new(base_path.clone(), Arc::clone(&config))),
-            tag_capability: Arc::new(TagCapability::new(base_path, Arc::clone(&config))),
+            tag_capability: Arc::new(TagCapability::new(base_path.clone(), Arc::clone(&config))),
             file_capability,
             daily_note_capability,
+            outline_capability: Arc::new(OutlineCapability::new(base_path, Arc::clone(&config))),
         }
     }
 
@@ -66,6 +70,11 @@ impl CapabilityRegistry {
         Arc::clone(&self.daily_note_capability)
     }
 
+    /// Get the outline capability
+    pub fn outline(&self) -> Arc<OutlineCapability> {
+        Arc::clone(&self.outline_capability)
+    }
+
     /// Create all operations for automatic registration
     ///
     /// This is the single source of truth for which operations are exposed via HTTP, CLI, and MCP.
@@ -86,6 +95,10 @@ impl CapabilityRegistry {
             Arc::new(daily_notes::SearchDailyNotesOperation::new(
                 self.daily_notes(),
             )),
+            // Outline operations
+            Arc::new(outline::GetOutlineOperation::new(self.outline())),
+            Arc::new(outline::GetSectionOperation::new(self.outline())),
+            Arc::new(outline::SearchHeadingsOperation::new(self.outline())),
         ]
     }
 }
