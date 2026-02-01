@@ -61,48 +61,68 @@ pub struct ListFilesResponse {
     pub total_directories: usize,
 }
 
-/// Operation metadata for read_file
-pub mod read_file {
-    pub const DESCRIPTION: &str = "Read the full contents of a markdown file from the vault";
+/// Operation metadata for read_files
+pub mod read_files {
+    pub const DESCRIPTION: &str = "Read one or more markdown files from the vault. Returns content for all requested files with per-file success/error status.";
     #[allow(dead_code)]
-    pub const CLI_NAME: &str = "read-file";
+    pub const CLI_NAME: &str = "read-files";
     pub const HTTP_PATH: &str = "/api/files/read";
 }
 
-/// Parameters for the read_file operation
+/// Result for a single file read operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ReadFileResult {
+    /// File path relative to vault root
+    pub file_path: String,
+    /// File name only
+    pub file_name: String,
+    /// Whether this file was successfully read
+    pub success: bool,
+    /// File content (only present if success=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Error message (only present if success=false)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Response from the read_files operation
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ReadFilesResponse {
+    /// Successfully read files
+    pub files: Vec<ReadFileResult>,
+    /// Total number of files requested
+    pub total_requested: usize,
+    /// Number of files successfully read
+    pub success_count: usize,
+    /// Number of files that failed
+    pub failure_count: usize,
+}
+
+/// Parameters for the read_files operation
 #[derive(Debug, Deserialize, JsonSchema, clap::Parser)]
-#[command(
-    name = "read-file",
-    about = "Read the full contents of a markdown file"
-)]
-pub struct ReadFileRequest {
+#[command(name = "read-files", about = "Read one or more markdown files")]
+pub struct ReadFilesRequest {
     /// Vault path (CLI only - not used in HTTP/MCP)
     #[arg(index = 1, required = true, help = "Path to vault")]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub vault_path: Option<PathBuf>,
 
-    /// File path relative to vault root
+    /// File paths relative to vault root (comma-separated for CLI)
     #[arg(
         index = 2,
         required = true,
-        help = "Path to file relative to vault root"
+        value_delimiter = ',',
+        help = "Comma-separated file paths relative to vault root"
     )]
-    #[schemars(
-        description = "Path to the file relative to the vault root (e.g., 'Notes/my-note.md')"
-    )]
-    pub file_path: String,
-}
+    #[schemars(description = "File paths relative to vault root (one or more)")]
+    pub file_paths: Vec<String>,
 
-/// Response from the read_file operation
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ReadFileResponse {
-    /// The full content of the file
-    pub content: String,
-    /// The file path relative to the vault root
-    pub file_path: String,
-    /// Just the file name
-    pub file_name: String,
+    /// Continue on error (return partial results)
+    #[arg(long, help = "Continue reading files even if some fail")]
+    #[schemars(description = "If true, continue on errors and return partial results")]
+    pub continue_on_error: Option<bool>,
 }
 
 /// Capability for file operations (list, read)
@@ -170,10 +190,109 @@ impl FileCapability {
         })
     }
 
-    /// Read the full contents of a markdown file from the vault
-    pub async fn read_file(&self, request: ReadFileRequest) -> CapabilityResult<ReadFileResponse> {
+    /// Read one or more markdown files
+    pub async fn read_files(
+        &self,
+        request: ReadFilesRequest,
+    ) -> CapabilityResult<ReadFilesResponse> {
+        let continue_on_error = request.continue_on_error.unwrap_or(false);
+
+        // Validation phase (if fail-fast mode)
+        if !continue_on_error {
+            self.validate_all_paths(&request.file_paths)?;
+        }
+
+        // Reading phase
+        let mut results = Vec::new();
+        let mut success_count = 0;
+        let mut failure_count = 0;
+
+        for file_path in &request.file_paths {
+            match self.read_single_file(file_path) {
+                Ok(content) => {
+                    let file_name = extract_file_name(file_path);
+                    results.push(ReadFileResult {
+                        file_path: file_path.clone(),
+                        file_name,
+                        success: true,
+                        content: Some(content),
+                        error: None,
+                    });
+                    success_count += 1;
+                }
+                Err(e) => {
+                    if continue_on_error {
+                        let file_name = extract_file_name(file_path);
+                        results.push(ReadFileResult {
+                            file_path: file_path.clone(),
+                            file_name,
+                            success: false,
+                            content: None,
+                            error: Some(e.to_string()),
+                        });
+                        failure_count += 1;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Ok(ReadFilesResponse {
+            files: results,
+            total_requested: request.file_paths.len(),
+            success_count,
+            failure_count,
+        })
+    }
+
+    /// Validate all paths before reading (fail-fast mode)
+    fn validate_all_paths(&self, file_paths: &[String]) -> CapabilityResult<()> {
+        // Check non-empty
+        if file_paths.is_empty() {
+            return Err(invalid_params("file_paths cannot be empty"));
+        }
+
+        // Canonicalize base path once
+        let canonical_base = self
+            .base_path
+            .canonicalize()
+            .map_err(|e| internal_error(format!("Failed to resolve base path: {}", e)))?;
+
+        // Validate each path
+        for file_path in file_paths {
+            let requested_path = PathBuf::from(file_path);
+            let full_path = self.base_path.join(&requested_path);
+
+            // Check existence
+            let canonical_full = full_path
+                .canonicalize()
+                .map_err(|_| invalid_params(format!("File not found: {}", file_path)))?;
+
+            // Security check
+            if !canonical_full.starts_with(&canonical_base) {
+                return Err(invalid_params(format!(
+                    "Invalid path '{}': must be within vault",
+                    file_path
+                )));
+            }
+
+            // File type check
+            if canonical_full.extension().and_then(|s| s.to_str()) != Some("md") {
+                return Err(invalid_params(format!(
+                    "Invalid file type '{}': only .md files allowed",
+                    file_path
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Read a single file (internal helper)
+    fn read_single_file(&self, file_path: &str) -> CapabilityResult<String> {
         // 1. Construct the full path
-        let requested_path = PathBuf::from(&request.file_path);
+        let requested_path = PathBuf::from(file_path);
         let full_path = self.base_path.join(&requested_path);
 
         // 2. Canonicalize paths for security check
@@ -184,44 +303,29 @@ impl FileCapability {
 
         let canonical_full = full_path
             .canonicalize()
-            .map_err(|_e| invalid_params(format!("File not found: {}", request.file_path)))?;
+            .map_err(|_| invalid_params(format!("File not found: {}", file_path)))?;
 
         // 3. Security: Ensure path is within base directory
         if !canonical_full.starts_with(&canonical_base) {
-            return Err(invalid_params(
-                "Invalid path: path must be within the vault",
-            ));
+            return Err(invalid_params(format!(
+                "Invalid path '{}': must be within vault",
+                file_path
+            )));
         }
 
         // 4. Validate it's a markdown file
         if canonical_full.extension().and_then(|s| s.to_str()) != Some("md") {
-            return Err(invalid_params(
-                "Invalid file type: only .md files can be read",
-            ));
+            return Err(invalid_params(format!(
+                "Invalid file type '{}': only .md files allowed",
+                file_path
+            )));
         }
 
         // 5. Read the file content
         let content = std::fs::read_to_string(&canonical_full)
             .map_err(|e| internal_error(format!("Failed to read file: {}", e)))?;
 
-        // 6. Get relative path for response
-        let relative_path = canonical_full
-            .strip_prefix(&canonical_base)
-            .unwrap_or(&canonical_full)
-            .to_string_lossy()
-            .to_string();
-
-        let file_name = canonical_full
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        Ok(ReadFileResponse {
-            content,
-            file_path: relative_path,
-            file_name,
-        })
+        Ok(content)
     }
 }
 
@@ -236,15 +340,24 @@ impl ListFilesOperation {
     }
 }
 
-/// Operation struct for read_file (HTTP, CLI, and MCP)
-pub struct ReadFileOperation {
+/// Operation struct for read_files (HTTP, CLI, and MCP)
+pub struct ReadFilesOperation {
     capability: Arc<FileCapability>,
 }
 
-impl ReadFileOperation {
+impl ReadFilesOperation {
     pub fn new(capability: Arc<FileCapability>) -> Self {
         Self { capability }
     }
+}
+
+/// Extract file name from path
+fn extract_file_name(file_path: &str) -> String {
+    Path::new(file_path)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string()
 }
 
 #[async_trait::async_trait]
@@ -304,29 +417,30 @@ impl crate::operation::Operation for ListFilesOperation {
 }
 
 #[async_trait::async_trait]
-impl crate::operation::Operation for ReadFileOperation {
+impl crate::operation::Operation for ReadFilesOperation {
     fn name(&self) -> &'static str {
-        read_file::CLI_NAME
+        read_files::CLI_NAME
     }
 
     fn path(&self) -> &'static str {
-        read_file::HTTP_PATH
+        read_files::HTTP_PATH
     }
 
     fn description(&self) -> &'static str {
-        read_file::DESCRIPTION
+        read_files::DESCRIPTION
     }
 
     fn get_command(&self) -> clap::Command {
         // Get command from request struct's Parser derive
-        ReadFileRequest::command()
+        ReadFilesRequest::command()
     }
 
     async fn execute_json(
         &self,
         json: serde_json::Value,
     ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
-        crate::http_router::execute_json_operation(json, |req| self.capability.read_file(req)).await
+        crate::http_router::execute_json_operation(json, |req| self.capability.read_files(req))
+            .await
     }
 
     async fn execute_from_args(
@@ -335,7 +449,7 @@ impl crate::operation::Operation for ReadFileOperation {
         _registry: &crate::capabilities::CapabilityRegistry,
     ) -> Result<String, Box<dyn std::error::Error>> {
         // Parse request from ArgMatches
-        let request = ReadFileRequest::from_arg_matches(matches)?;
+        let request = ReadFilesRequest::from_arg_matches(matches)?;
 
         // Handle CLI-specific vault path if present
         let response = if let Some(ref vault_path) = request.vault_path {
@@ -343,9 +457,9 @@ impl crate::operation::Operation for ReadFileOperation {
             let capability = FileCapability::new(vault_path.clone(), config);
             let mut req_without_path = request;
             req_without_path.vault_path = None;
-            capability.read_file(req_without_path).await?
+            capability.read_files(req_without_path).await?
         } else {
-            self.capability.read_file(request).await?
+            self.capability.read_files(request).await?
         };
 
         // Serialize to JSON
@@ -354,7 +468,7 @@ impl crate::operation::Operation for ReadFileOperation {
 
     fn input_schema(&self) -> serde_json::Value {
         use schemars::schema_for;
-        serde_json::to_value(schema_for!(ReadFileRequest)).unwrap()
+        serde_json::to_value(schema_for!(ReadFilesRequest)).unwrap()
     }
 }
 

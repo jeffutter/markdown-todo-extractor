@@ -1,6 +1,6 @@
 use crate::capabilities::CapabilityRegistry;
 use crate::capabilities::files::{
-    ListFilesRequest, ListFilesResponse, ReadFileRequest, ReadFileResponse,
+    ListFilesRequest, ListFilesResponse, ReadFilesRequest, ReadFilesResponse,
 };
 use crate::capabilities::tags::{
     ExtractTagsRequest, ExtractTagsResponse, ListTagsRequest, ListTagsResponse,
@@ -120,13 +120,13 @@ impl TaskSearchService {
         Ok(Json(response))
     }
 
-    #[tool(description = "Read the full contents of a markdown file from the vault")]
-    async fn read_file(
+    #[tool(description = "Read one or more markdown files from the vault")]
+    async fn read_files(
         &self,
-        Parameters(request): Parameters<ReadFileRequest>,
-    ) -> Result<Json<ReadFileResponse>, ErrorData> {
+        Parameters(request): Parameters<ReadFilesRequest>,
+    ) -> Result<Json<ReadFilesResponse>, ErrorData> {
         // Delegate to FileCapability
-        let response = self.capability_registry.files().read_file(request).await?;
+        let response = self.capability_registry.files().read_files(request).await?;
 
         Ok(Json(response))
     }
@@ -149,7 +149,7 @@ impl ServerHandler for TaskSearchService {
             crate::capabilities::tags::list_tags::DESCRIPTION,
             crate::capabilities::tags::search_by_tags::DESCRIPTION,
             crate::capabilities::files::list_files::DESCRIPTION,
-            crate::capabilities::files::read_file::DESCRIPTION
+            crate::capabilities::files::read_files::DESCRIPTION
         );
 
         ServerInfo {

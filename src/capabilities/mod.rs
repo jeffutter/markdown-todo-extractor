@@ -64,7 +64,7 @@ impl CapabilityRegistry {
             Arc::new(tags::SearchByTagsOperation::new(self.tags())),
             // File operations
             Arc::new(files::ListFilesOperation::new(self.files())),
-            Arc::new(files::ReadFileOperation::new(self.files())),
+            Arc::new(files::ReadFilesOperation::new(self.files())),
         ]
     }
 }
