@@ -21,18 +21,18 @@ Enhance existing file reading capability to accept a list of file paths instead 
 
 #### Overview
 
-Add a new `read_files` (plural) operation to complement the existing `read_file` (singular) operation. This enables efficient batch reading of multiple markdown files in a single request, which is required for the daily notes capability (markdown-todo-extractor-vw9).
+Replace the existing `read_file` operation with a new `read_files` (plural) operation that handles both single-file and multi-file reading. This enables efficient batch reading of multiple markdown files in a single request, which is required for the daily notes capability (markdown-todo-extractor-vw9). Reading a single file is simply a special case of reading multiple files with an array containing one element.
 
-#### Design Decision: New Operation vs. Extending Existing
+#### Design Decision: Replacing vs. Adding
 
-**Decision**: Create a new `read_files` operation alongside the existing `read_file` operation.
+**Decision**: Replace the existing `read_file` operation with `read_files`.
 
 **Rationale**:
-- **Simplicity**: Keeps single-file and multi-file use cases separate with clear semantics
-- **Backward compatibility**: Existing clients using `read_file` are unaffected
-- **Response structure**: Multi-file responses need metadata (success/failure per file) that single-file doesn't
-- **Error handling**: Single file can fail fast; multi-file should collect partial results
-- **Consistent with patterns**: The codebase uses plural operations for bulk operations (e.g., `search_tasks` returns multiple tasks)
+- **Unified interface**: Single operation handles both single and multi-file use cases
+- **Simplicity**: Clients don't need to choose between two similar operations
+- **Forward compatibility**: Future enhancements benefit all use cases
+- **Error handling**: Per-file error reporting works for both single and multiple files
+- **Reduced code duplication**: No need to maintain two separate code paths
 
 #### Request/Response Design
 
@@ -40,7 +40,7 @@ Add a new `read_files` (plural) operation to complement the existing `read_file`
 
 ```rust
 #[derive(Debug, Deserialize, JsonSchema, clap::Parser)]
-#[command(name = "read-files", about = "Read multiple markdown files")]
+#[command(name = "read-files", about = "Read one or more markdown files")]
 pub struct ReadFilesRequest {
     /// Vault path (CLI only)
     #[arg(index = 1, required = true, help = "Path to vault")]
@@ -48,10 +48,10 @@ pub struct ReadFilesRequest {
     #[schemars(skip)]
     pub vault_path: Option<PathBuf>,
 
-    /// File paths relative to vault root
+    /// File paths relative to vault root (comma-separated for CLI)
     #[arg(index = 2, required = true, value_delimiter = ',',
           help = "Comma-separated file paths relative to vault root")]
-    #[schemars(description = "File paths relative to vault root")]
+    #[schemars(description = "File paths relative to vault root (one or more)")]
     pub file_paths: Vec<String>,
 
     /// Continue on error (return partial results)
@@ -62,9 +62,10 @@ pub struct ReadFilesRequest {
 ```
 
 **Key features**:
-- `file_paths: Vec<String>` - Array of relative paths
-- `value_delimiter = ','` - CLI can pass `file1.md,file2.md,file3.md`
+- `file_paths: Vec<String>` - Array of relative paths (can contain one or many)
+- `value_delimiter = ','` - CLI can pass `file1.md` or `file1.md,file2.md,file3.md`
 - `continue_on_error` - Determines error handling strategy
+- Reading a single file: just pass one path in the array
 
 ### ReadFilesResponse
 
@@ -137,19 +138,19 @@ Two modes based on `continue_on_error`:
 
 ### File: `src/capabilities/files.rs`
 
-**Add operation metadata module**:
+**Operation metadata module** (replaces existing read_file):
 ```rust
 pub mod read_files {
-    pub const DESCRIPTION: &str = "Read multiple markdown files in a single request. Returns content for all requested files with per-file success/error status.";
+    pub const DESCRIPTION: &str = "Read one or more markdown files. Returns content for all requested files with per-file success/error status.";
     pub const CLI_NAME: &str = "read-files";
-    pub const HTTP_PATH: &str = "/api/files/read-multiple";
+    pub const HTTP_PATH: &str = "/api/files/read";
 }
 ```
 
-**Add to FileCapability**:
+**Replace existing read_file with read_files in FileCapability**:
 ```rust
 impl FileCapability {
-    /// Read multiple markdown files
+    /// Read one or more markdown files
     pub async fn read_files(
         &self,
         request: ReadFilesRequest,
@@ -243,16 +244,16 @@ impl FileCapability {
         Ok(())
     }
 
-    /// Read a single file (internal helper, reused from read_file logic)
+    /// Read a single file (internal helper)
     fn read_single_file(&self, file_path: &str) -> CapabilityResult<String> {
-        // Same logic as read_file but extracted as helper
+        // Same logic as original read_file but extracted as helper
         // Returns just the content string
         // ... (reuse existing read_file validation + read logic)
     }
 }
 ```
 
-**Add ReadFilesOperation struct**:
+**Replace ReadFileOperation with ReadFilesOperation**:
 ```rust
 pub struct ReadFilesOperation {
     capability: Arc<FileCapability>,
@@ -321,22 +322,22 @@ impl crate::operation::Operation for ReadFilesOperation {
 
 ### File: `src/capabilities/mod.rs`
 
-**Register the operation**:
+**Replace ReadFileOperation with ReadFilesOperation**:
 ```rust
 pub fn create_operations(&self) -> Vec<Arc<dyn Operation>> {
     vec![
         // ... existing operations ...
-        Arc::new(files::ReadFileOperation::new(self.files())),
-        Arc::new(files::ReadFilesOperation::new(self.files())),  // Add this
+        // Replace ReadFileOperation with ReadFilesOperation
+        Arc::new(files::ReadFilesOperation::new(self.files())),
     ]
 }
 ```
 
 ### File: `src/mcp.rs`
 
-**Add MCP tool**:
+**Replace read_file MCP tool with read_files**:
 ```rust
-#[tool(description = "Read multiple markdown files from the vault in a single request")]
+#[tool(description = "Read one or more markdown files from the vault")]
 async fn read_files(
     &self,
     Parameters(request): Parameters<ReadFilesRequest>,
@@ -348,9 +349,9 @@ async fn read_files(
 
 #### Code Reuse Strategy
 
-**Extract common logic from `read_file`**:
+**Refactor existing `read_file` into `read_files`**:
 
-The existing `read_file` method has ~50 lines of logic. Extract the core into helper methods:
+The existing `read_file` method has ~50 lines of logic. Refactor it:
 
 1. `read_single_file(&self, file_path: &str) -> CapabilityResult<String>`
    - Canonicalize path
@@ -358,45 +359,37 @@ The existing `read_file` method has ~50 lines of logic. Extract the core into he
    - File type validation
    - Read content
    - Returns content string
+   - Extracted from existing `read_file` logic
 
-2. Keep existing `read_file` method (for backward compatibility):
-   ```rust
-   pub async fn read_file(&self, request: ReadFileRequest) -> CapabilityResult<ReadFileResponse> {
-       let content = self.read_single_file(&request.file_path)?;
+2. `read_files(&self, request: ReadFilesRequest) -> CapabilityResult<ReadFilesResponse>`
+   - Loops through `file_paths` and calls `read_single_file` for each
+   - Collects results into `ReadFilesResponse`
+   - Handles `continue_on_error` flag
 
-       // Build response with metadata
-       Ok(ReadFileResponse {
-           content,
-           file_path: request.file_path.clone(),
-           file_name: extract_file_name(&request.file_path),
-       })
-   }
-   ```
-
-3. New `read_files` calls `read_single_file` in a loop
+3. **Remove** existing `read_file` method and `ReadFileRequest`/`ReadFileResponse` structs
 
 **Benefits**:
-- No code duplication
+- Unified interface for all file reading
 - Single source of truth for validation logic
-- Easier to maintain and test
+- Simpler codebase (fewer operations to maintain)
 
 #### Critical Files
 
 ### Files to Modify
-1. **`src/capabilities/files.rs`** (~150 lines added)
-   - Add `read_files` operation metadata module
-   - Add `ReadFilesRequest` and `ReadFilesResponse` structs
+1. **`src/capabilities/files.rs`** (~100 lines modified)
+   - Replace `read_file` operation metadata module with `read_files`
+   - Replace `ReadFileRequest`/`ReadFileResponse` with `ReadFilesRequest`/`ReadFilesResponse`
    - Add `ReadFileResult` struct
-   - Add `FileCapability::read_files()` method
+   - Replace `FileCapability::read_file()` with `read_files()`
    - Add `FileCapability::validate_all_paths()` helper
-   - Refactor: Extract `read_single_file()` from existing `read_file()`
-   - Add `ReadFilesOperation` struct with Operation trait impl
+   - Refactor: Extract `read_single_file()` from existing `read_file()` logic
+   - Replace `ReadFileOperation` with `ReadFilesOperation`
 
 2. **`src/capabilities/mod.rs`** (~2 lines)
-   - Register `ReadFilesOperation` in `create_operations()`
+   - Replace `ReadFileOperation` with `ReadFilesOperation` in `create_operations()`
 
 3. **`src/mcp.rs`** (~10 lines)
-   - Add `read_files` MCP tool that delegates to capability
+   - Replace `read_file` MCP tool with `read_files`
 
 ### Files to Read (for reference)
 4. **`src/capabilities/tags.rs`** - Reference for array parameter patterns
@@ -415,7 +408,13 @@ echo "# Note 2" > /tmp/test_vault/note2.md
 echo "# Note 3" > /tmp/test_vault/subfolder/note3.md
 ```
 
-**Test CLI - Success case**:
+**Test CLI - Single file (backward compatible)**:
+```bash
+cargo run -- read-files /tmp/test_vault note1.md
+### Expected: JSON with 1 successful file
+```
+
+**Test CLI - Multiple files**:
 ```bash
 cargo run -- read-files /tmp/test_vault note1.md,note2.md,subfolder/note3.md
 ### Expected: JSON with 3 successful files
@@ -453,7 +452,7 @@ await client.call("read_files", {
 ### Edge Cases to Test
 
 1. **Empty array**: `file_paths: []` → Error
-2. **Single file**: `file_paths: ["note1.md"]` → Works (same as read_file but different response format)
+2. **Single file**: `file_paths: ["note1.md"]` → Works (primary use case)
 3. **Duplicate paths**: `file_paths: ["note1.md", "note1.md"]` → Read twice (client's choice)
 4. **Path traversal attempt**: `file_paths: ["../../../etc/passwd"]` → Error (security validation)
 5. **Non-md file**: `file_paths: ["image.png"]` → Error
@@ -483,6 +482,9 @@ cargo run -- read-files /path/to/vault file1.md,file2.md
 
 ### CLI
 ```bash
+### Read single file
+cargo run -- read-files /vault note1.md
+
 ### Read multiple files
 cargo run -- read-files /vault note1.md,note2.md,subfolder/note3.md
 
@@ -492,7 +494,16 @@ cargo run -- read-files /vault note1.md,missing.md --continue-on-error
 
 ### HTTP
 ```bash
-curl -X POST http://localhost:3000/api/files/read-multiple \
+### Single file
+curl -X POST http://localhost:3000/api/files/read \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file_paths": ["Daily/2025-01-20.md"],
+    "continue_on_error": false
+  }'
+
+### Multiple files
+curl -X POST http://localhost:3000/api/files/read \
   -H "Content-Type: application/json" \
   -d '{
     "file_paths": ["Daily/2025-01-20.md", "Daily/2025-01-21.md", "Daily/2025-01-22.md"],
@@ -502,7 +513,15 @@ curl -X POST http://localhost:3000/api/files/read-multiple \
 
 ### MCP (from daily notes capability)
 ```rust
-// In daily_notes capability, can now batch read multiple daily notes
+// Single file - just pass one path
+let request = ReadFilesRequest {
+    vault_path: None,
+    file_paths: vec!["Daily/2025-01-20.md".to_string()],
+    continue_on_error: Some(false),
+};
+let response = file_capability.read_files(request).await?;
+
+// Multiple files - batch read daily notes
 let file_paths: Vec<String> = dates
     .iter()
     .map(|date| format!("Daily/{}.md", date))
@@ -529,23 +548,27 @@ let daily_notes: Vec<DailyNote> = response.files
 
 #### Trade-offs and Rationale
 
-### New Operation vs. Optional Array Parameter
+### Replacement vs. New Operation
 
-**Considered**: Adding `file_paths: Option<Vec<String>>` to existing `ReadFileRequest`
+**Considered**: Creating a new `read_files` alongside existing `read_file`
 
 **Rejected because**:
-- Complicates existing operation semantics
-- Response structure would need to be generic (single file vs. multiple files)
-- Error handling would be inconsistent
-- Breaks single responsibility principle
+- Two similar operations create confusion for clients
+- Code duplication between operations
+- More complex API surface
+- Harder to maintain two code paths
 
-**Chosen**: Separate `read_files` operation
+**Chosen**: Replace `read_file` with unified `read_files`
 
 **Benefits**:
-- Clear separation of concerns
-- Each operation has simple, focused semantics
-- Easy to maintain and test independently
-- Clients can choose appropriate operation for their use case
+- Single, consistent interface for all file reading
+- Simpler codebase
+- Single source of truth for validation logic
+- Reading one file is just `file_paths: ["note.md"]`
+
+**Costs**:
+- Breaking change: existing clients must update to new response format
+- Single file response is wrapped in array structure
 
 ### Fail Fast vs. Continue on Error
 
