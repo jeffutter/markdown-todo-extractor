@@ -50,6 +50,10 @@ pub fn default_merge_threshold() -> usize {
     30
 }
 
+pub fn default_rrf_recency_weight() -> f64 {
+    0.5
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchConfig {
     /// Model ID sent as `"model"` to the embedding API (e.g. "qwen3-embedding:0.6b")
@@ -115,6 +119,10 @@ pub struct SearchConfig {
     /// Useful for skipping Dataview queries, template blocks, etc.
     #[serde(default)]
     pub exclude_headings: Vec<String>,
+
+    /// Recency weight applied post-RRF fusion (default 0.5). Set to 0 to disable.
+    #[serde(default = "default_rrf_recency_weight")]
+    pub rrf_recency_weight: f64,
 }
 
 fn default_model_id() -> String {
@@ -160,6 +168,7 @@ impl Default for SearchConfig {
             max_results: default_max_results(),
             merge_threshold: default_merge_threshold(),
             exclude_headings: Vec::new(),
+            rrf_recency_weight: default_rrf_recency_weight(),
         }
     }
 }
@@ -205,6 +214,7 @@ struct PartialSearchConfig {
     max_results: Option<usize>,
     merge_threshold: Option<usize>,
     exclude_headings: Option<Vec<String>>,
+    rrf_recency_weight: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -293,6 +303,9 @@ impl Config {
             }
             if let Some(ref headings) = s.exclude_headings {
                 self.search.exclude_headings.extend(headings.clone());
+            }
+            if let Some(v) = s.rrf_recency_weight {
+                self.search.rrf_recency_weight = v;
             }
         }
     }
@@ -460,6 +473,12 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .collect();
             self.search.exclude_headings.extend(patterns);
+        }
+
+        if let Ok(v) = std::env::var("NOTECTL_SEARCH_RRF_RECENCY_WEIGHT")
+            && let Ok(val) = v.parse::<f64>()
+        {
+            self.search.rrf_recency_weight = val;
         }
     }
 
@@ -692,6 +711,7 @@ cache_dir = "/tmp/search-cache"
             std::env::set_var("NOTECTL_SEARCH_RRF_K", "40.0");
             std::env::set_var("NOTECTL_SEARCH_RRF_BM25_WEIGHT", "2.5");
             std::env::set_var("NOTECTL_SEARCH_RRF_COSINE_WEIGHT", "0.5");
+            std::env::set_var("NOTECTL_SEARCH_RRF_RECENCY_WEIGHT", "0.75");
             std::env::set_var("NOTECTL_SEARCH_SPARSE_WEIGHTS", "/path/to/sparse.bin");
             std::env::set_var("NOTECTL_SEARCH_CACHE_DIR", "/custom/cache");
             std::env::set_var("NOTECTL_SEARCH_MAX_RESULTS", "100");
@@ -717,6 +737,7 @@ cache_dir = "/tmp/search-cache"
         assert!((config.search.rrf_k - 40.0).abs() < f64::EPSILON);
         assert!((config.search.rrf_bm25_weight - 2.5).abs() < f64::EPSILON);
         assert!((config.search.rrf_cosine_weight - 0.5).abs() < f64::EPSILON);
+        assert!((config.search.rrf_recency_weight - 0.75).abs() < f64::EPSILON);
         assert_eq!(
             config.search.sparse_weights.as_deref(),
             Some("/path/to/sparse.bin")
@@ -737,6 +758,7 @@ cache_dir = "/tmp/search-cache"
             "NOTECTL_SEARCH_RRF_K",
             "NOTECTL_SEARCH_RRF_BM25_WEIGHT",
             "NOTECTL_SEARCH_RRF_COSINE_WEIGHT",
+            "NOTECTL_SEARCH_RRF_RECENCY_WEIGHT",
             "NOTECTL_SEARCH_SPARSE_WEIGHTS",
             "NOTECTL_SEARCH_CACHE_DIR",
             "NOTECTL_SEARCH_MAX_RESULTS",

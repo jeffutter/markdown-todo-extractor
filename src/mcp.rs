@@ -252,6 +252,7 @@ mod search_tools {
                     params.mode.unwrap_or_default(),
                     params.no_reindex.unwrap_or(false),
                     params.tags,
+                    None,
                 )
                 .await?;
             Ok(response)

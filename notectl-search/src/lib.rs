@@ -78,6 +78,9 @@ pub struct RankedChunk {
     /// YAML frontmatter tags from the source file
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Document date from frontmatter (epoch seconds)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<u64>,
     /// Preview of the matching text
     pub preview: String,
 }

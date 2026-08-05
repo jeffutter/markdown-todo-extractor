@@ -3,6 +3,214 @@ use std::path::Path;
 
 use crate::tokenize;
 
+/// Parse a frontmatter date string into epoch seconds.
+///
+/// Accepts:
+/// - Bare date: `YYYY-MM-DD`
+/// - ISO 8601 with timezone offset: `YYYY-MM-DDTHH:MM:SS+HH:MM` or `-HH:MM`
+/// - ISO 8601 with Z suffix: `YYYY-MM-DDTHH:MM:SSZ`
+///
+/// Returns None if the format is unrecognized.
+fn parse_frontmatter_date(s: &str) -> Option<u64> {
+    let s = s.trim();
+
+    // Try to parse as ISO 8601 with time component
+    if s.contains('T') || s.contains('t') {
+        return parse_iso8601_datetime(s);
+    }
+
+    // Try bare date YYYY-MM-DD
+    parse_bare_date(s)
+}
+
+/// Parse a bare date string "YYYY-MM-DD" into epoch seconds (midnight UTC).
+fn parse_bare_date(s: &str) -> Option<u64> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let year: i32 = parts[0].parse().ok()?;
+    let month: u32 = parts[1].parse().ok()?;
+    let day: u32 = parts[2]
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()?;
+
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    ymd_to_epoch(year, month, day, 0, 0, 0, 0, 0)
+}
+
+/// Parse an ISO 8601 datetime string into epoch seconds.
+fn parse_iso8601_datetime(s: &str) -> Option<u64> {
+    // Split on 'T' or 't'
+    let (date_part, time_part) = s.split_once(|c| ['T', 't'].contains(&c))?;
+
+    let parts: Vec<&str> = date_part.split('-').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let year: i32 = parts[0].parse().ok()?;
+    let month: u32 = parts[1].parse().ok()?;
+    let day: u32 = parts[2]
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()?;
+
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    // Determine timezone and strip it from time_part for parsing
+    let (time_clean, tz_offset_minutes): (&str, i32) =
+        if time_part.ends_with('Z') || time_part.ends_with('z') {
+            (time_part.trim_end_matches('Z').trim_end_matches('z'), 0)
+        } else {
+            // Find the last + or - that's part of a timezone offset (after the seconds)
+            let tz_match = regex_like_tz_at_end(time_part)?;
+            let tz_sign = if tz_match.starts_with('+') {
+                1i32
+            } else {
+                -1i32
+            };
+            let tz_digits = &tz_match[1..];
+            let tz_parts: Vec<&str> = tz_digits.split(':').collect();
+            let tz_hours: i32 = tz_parts[0].parse().ok()?;
+            let tz_mins: i32 = if tz_parts.len() > 1 {
+                tz_parts[1].parse().ok()?
+            } else {
+                0
+            };
+            let tz_offset = tz_sign * (tz_hours * 60 + tz_mins);
+
+            // Strip the timezone from time_part
+            let time_clean = &time_part[..time_part.len() - tz_match.len()];
+            (time_clean, tz_offset)
+        };
+
+    // Parse HH:MM:SS (possibly with fractional seconds)
+    let time_parts: Vec<&str> = time_clean.split(':').collect();
+    if time_parts.len() < 3 {
+        return None;
+    }
+
+    let hour: u32 = time_parts[0].parse().ok()?;
+    let minute: u32 = time_parts[1].parse().ok()?;
+    let second: f32 = time_parts[2]
+        .split(|c: char| !c.is_ascii_digit() && c != '.')
+        .next()?
+        .parse()
+        .ok()?;
+
+    ymd_to_epoch(
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second as u32,
+        (tz_offset_minutes.abs() / 60) as u32,
+        if tz_offset_minutes < 0 { 1 } else { 0 },
+    )
+}
+
+/// Check if the string ends with a timezone offset like +HH:MM or -HH:MM.
+/// Returns the matched substring if found.
+fn regex_like_tz_at_end(s: &str) -> Option<&str> {
+    // Look for the last occurrence of + or - followed by digits (timezone offset).
+    // Prefer + over - since - could appear in the time portion in edge cases.
+    let pos = s.rfind('+').or_else(|| s.rfind('-'))?;
+    let rest = &s[pos..];
+
+    // Validate pattern: sign followed by 2-5 chars of digits/colon (e.g. "07:00", "0730")
+    if rest.len() < 4 {
+        return None;
+    }
+    let digits = &rest[1..];
+
+    // Must be all digits and colons (HH:MM or HHMM format)
+    if !digits.chars().all(|c| c.is_ascii_digit() || c == ':') {
+        return None;
+    }
+
+    // Must start with a digit
+    if !digits.chars().next()?.is_ascii_digit() {
+        return None;
+    }
+
+    Some(rest)
+}
+
+/// Convert a calendar date/time to Unix epoch seconds.
+#[allow(clippy::too_many_arguments)]
+fn ymd_to_epoch(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+    tz_offset_hours: u32,
+    tz_is_negative: u32,
+) -> Option<u64> {
+    let y = year as i64;
+    let days_before_year = y * 365 + (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400;
+
+    let month_days = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+
+    let mut days_in_year = 0i64;
+    for m in 1..month {
+        days_in_year += month_days[m as usize] as i64;
+        if m == 2 && is_leap {
+            days_in_year += 1;
+        }
+    }
+    days_in_year += (day - 1) as i64;
+
+    let epoch_base = ymd_to_days_since_epoch(1970, 1, 1);
+    let total_days = days_before_year + days_in_year - epoch_base;
+
+    let tod_secs = (hour as i64) * 3600 + (minute as i64) * 60 + (second as i64);
+
+    // Timezone offset in seconds (subtract to convert local → UTC)
+    let tz_offset_secs = if tz_is_negative == 0 {
+        (tz_offset_hours as i64) * 3600
+    } else {
+        -(tz_offset_hours as i64) * 3600
+    };
+
+    let total_secs = total_days * 86400 + tod_secs - tz_offset_secs;
+
+    Some(total_secs as u64)
+}
+
+/// Convert a calendar date to days since some reference point.
+fn ymd_to_days_since_epoch(year: i32, month: u32, day: u32) -> i64 {
+    let y = year as i64;
+    let days_before_year = y * 365 + (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400;
+
+    let month_days = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+
+    let mut days_in_year = 0i64;
+    for m in 1..month {
+        days_in_year += month_days[m as usize] as i64;
+        if m == 2 && is_leap {
+            days_in_year += 1;
+        }
+    }
+    days_in_year += (day - 1) as i64;
+
+    days_before_year + days_in_year
+}
+
 /// A text chunk produced by the chunker
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Chunk {
@@ -20,6 +228,9 @@ pub struct Chunk {
     pub heading_path: Vec<String>,
     /// YAML frontmatter tags extracted from the source file
     pub tags: Vec<String>,
+    /// Document date from frontmatter (epoch seconds), with priority:
+    /// updated > created > date. None if no date found.
+    pub date: Option<u64>,
     /// The raw text content of this chunk
     pub text: String,
 }
@@ -147,22 +358,66 @@ impl Chunker {
         Vec::new()
     }
 
+    /// Extract a document date from YAML frontmatter.
+    ///
+    /// Priority: updated > created > date (Obsidian default).
+    /// Accepts bare date `YYYY-MM-DD` and ISO 8601 `YYYY-MM-DDTHH:MM:SS+HH:MM` / `Z`.
+    /// Returns epoch seconds, or None if no date field is present.
+    fn extract_frontmatter_date(content: &str) -> Option<u64> {
+        let mut lines = content.lines();
+        let first_line = lines.next().map(|s| s.trim());
+        if first_line != Some("---") {
+            return None;
+        }
+
+        let mut frontmatter = String::new();
+        for line in lines {
+            if line.trim() == "---" {
+                break;
+            }
+            frontmatter.push_str(line);
+            frontmatter.push('\n');
+        }
+
+        // Priority order: updated > created > date
+        let keys = ["updated", "created", "date"];
+        for key in &keys {
+            for line in frontmatter.lines() {
+                let trimmed = line.trim();
+                if let Some(value) = trimmed.strip_prefix(&format!("{}:", key)) {
+                    let value = value.trim().trim_matches(['"', '\'', ' ']);
+                    if let Some(epoch) = parse_frontmatter_date(value) {
+                        return Some(epoch);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Chunk a single markdown file's contents
     pub fn chunk_file(&self, path: &Path, content: &str) -> Vec<Chunk> {
-        // Extract file-level tags from frontmatter once
+        // Extract file-level tags and date from frontmatter once
         let tags = Self::extract_frontmatter_tags(content);
+        let date = Self::extract_frontmatter_date(content);
 
         let sections = match self.extractor.extract_sections_from_content(content) {
             Ok(sections) => sections,
             Err(_) => {
                 // Fallback to simple size-based chunking if section extraction fails
-                return self.chunk_by_size(content, path.to_string_lossy().to_string(), &tags);
+                return self.chunk_by_size(
+                    content,
+                    path.to_string_lossy().to_string(),
+                    &tags,
+                    date,
+                );
             }
         };
 
         // If no real headings were found, fall back to size-based chunking.
         if sections.iter().all(|s| s.heading.title.is_empty()) {
-            return self.chunk_by_size(content, path.to_string_lossy().to_string(), &tags);
+            return self.chunk_by_size(content, path.to_string_lossy().to_string(), &tags, date);
         }
 
         let mut chunks = Vec::new();
@@ -299,6 +554,7 @@ impl Chunker {
                             heading: Some(section.heading.title.clone()),
                             heading_path: heading_path.clone(),
                             tags: tags.clone(),
+                            date,
                             text: part.clone(),
                         });
                     }
@@ -367,6 +623,7 @@ impl Chunker {
                     heading: Some(section.heading.title.clone()),
                     heading_path: heading_path.clone(),
                     tags: tags.clone(),
+                    date,
                     text: part.clone(),
                 });
             }
@@ -455,7 +712,13 @@ impl Chunker {
     }
 
     /// Split text into fixed-size word chunks without overlap.
-    fn chunk_by_size(&self, content: &str, file_name: String, tags: &[String]) -> Vec<Chunk> {
+    fn chunk_by_size(
+        &self,
+        content: &str,
+        file_name: String,
+        tags: &[String],
+        date: Option<u64>,
+    ) -> Vec<Chunk> {
         // Pre-compute character spans of each whitespace-delimited word in the original content.
         let word_spans = Self::word_spans(content);
         let mut chunks = Vec::new();
@@ -481,6 +744,7 @@ impl Chunker {
                     heading: None,
                     heading_path: Vec::new(),
                     tags: tags.to_vec(),
+                    date,
                     text,
                 });
             }
@@ -1273,5 +1537,100 @@ sb3 sb4 sb5
             merged_chunks[0].line_start, 2,
             "First merged chunk should start at line 2 (content after '## Small A' heading)"
         );
+    }
+
+    // ---- Frontmatter date extraction tests ----
+
+    #[test]
+    fn test_extract_frontmatter_date_updated_priority() {
+        let content = "---\nupdated: 2026-07-19\ncreated: 2025-01-01\ndate: 2024-06-15\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_some(), "should extract updated date");
+        let epoch = date.unwrap();
+        // Sanity check: it should be a reasonable epoch value (year 2026)
+        assert!(epoch > 1_700_000_000 && epoch < 2_000_000_000);
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_created_fallback() {
+        let content = "---\ncreated: 2025-03-15\ndate: 2024-06-15\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_some());
+        // Should use created (2025-03-15), not date (2024-06-15)
+        let epoch = date.unwrap();
+        // March 2025 is around 1741900800
+        assert!((epoch as i64 - 1_741_900_800).abs() < 86400 * 2); // within 2 days
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_obsidian_default() {
+        let content = "---\ndate: 2024-12-25\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_some());
+        // Dec 25, 2024 is around 1735084800
+        let epoch = date.unwrap();
+        assert!((epoch as i64 - 1_735_084_800).abs() < 86400); // within 1 day
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_iso8601_with_timezone() {
+        let content = "---\nupdated: 2026-07-19T20:27:21-07:00\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_some(), "should parse ISO 8601 with timezone offset");
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_iso8601_zulu() {
+        let content = "---\ncreated: 2025-06-15T12:00:00Z\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_some(), "should parse ISO 8601 with Z suffix");
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_no_frontmatter() {
+        let content = "# Title\nContent without frontmatter";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_none());
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_no_date_field() {
+        let content = "---\ntags: [test]\ntitle: My Note\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_none());
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_quoted_value() {
+        let content = "---\nupdated: \"2026-01-15\"\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_some(), "should handle quoted date values");
+    }
+
+    #[test]
+    fn test_extract_frontmatter_date_malformed() {
+        let content = "---\nupdated: not-a-date\n---\n# Title\nContent";
+        let date = Chunker::extract_frontmatter_date(content);
+        assert!(date.is_none(), "malformed date should return None");
+    }
+
+    #[test]
+    fn test_chunk_file_propagates_date() {
+        let config = ChunkerConfig {
+            min_chunk_size: 3,
+            ..Default::default()
+        };
+        let chunker = Chunker::new(config);
+        let content =
+            "---\nupdated: 2026-07-19\n---\n# Title\nSome content here for testing dates.";
+        let chunks = chunker.chunk_file(Path::new("test.md"), content);
+
+        assert!(!chunks.is_empty());
+        for chunk in &chunks {
+            assert!(
+                chunk.date.is_some(),
+                "chunk should have date from frontmatter"
+            );
+        }
     }
 }

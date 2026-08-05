@@ -96,6 +96,8 @@ pub struct SearchOptions {
     pub rrf_bm25_weight: f64,
     /// Weight multiplier for cosine side of RRF (default 1.0).
     pub rrf_cosine_weight: f64,
+    /// Recency weight applied post-RRF fusion (default 0.5). Set to 0 to disable.
+    pub rrf_recency_weight: f64,
     /// Skip staleness check and reindexing; use existing index as-is.
     pub no_reindex: bool,
     /// Filter results to only chunks whose file has ALL specified tags (AND logic).
@@ -112,6 +114,7 @@ impl Default for SearchOptions {
             rrf_k: sc.rrf_k,
             rrf_bm25_weight: sc.rrf_bm25_weight,
             rrf_cosine_weight: sc.rrf_cosine_weight,
+            rrf_recency_weight: sc.rrf_recency_weight,
             no_reindex: false,
             tags: Vec::new(),
         }
@@ -127,6 +130,7 @@ impl SearchOptions {
             rrf_k: config.rrf_k,
             rrf_bm25_weight: config.rrf_bm25_weight,
             rrf_cosine_weight: config.rrf_cosine_weight,
+            rrf_recency_weight: config.rrf_recency_weight,
             no_reindex: false,
             tags: Vec::new(),
         }
@@ -325,6 +329,7 @@ pub async fn search(
                     heading: entry.heading.clone(),
                     heading_path: entry.heading_path.clone(),
                     tags: entry.tags.clone(),
+                    date: entry.date,
                     text: indexed_text,
                 }
             })
@@ -403,6 +408,13 @@ pub async fn search(
         }
     };
 
+    // Apply recency weighting if configured.
+    let fused = if options.rrf_recency_weight > 0.0 {
+        apply_recency_boost(&fused, manifest, options.rrf_recency_weight)
+    } else {
+        fused
+    };
+
     // Truncate to max_results.
     let top_results: Vec<(usize, f64)> = fused.into_iter().take(options.max_results).collect();
 
@@ -440,6 +452,7 @@ pub async fn search(
                 score,
                 heading,
                 tags: entry.tags.clone(),
+                date: entry.date,
                 preview,
             })
         })
@@ -449,6 +462,74 @@ pub async fn search(
         results,
         mode_used: final_mode,
     })
+}
+
+/// Apply recency weighting to fused search results.
+///
+/// For each chunk, looks up its document date (from frontmatter) or falls back
+/// to the file's mtime. Normalizes dates to [0, 1] relative to the corpus,
+/// then boosts scores: `adjusted = score * (1 + weight * factor)`.
+fn apply_recency_boost(
+    fused: &[(usize, f64)],
+    manifest: &crate::storage::SearchManifest,
+    weight: f64,
+) -> Vec<(usize, f64)> {
+    if fused.is_empty() {
+        return fused.to_vec();
+    }
+
+    // Build a map from chunk_idx to epoch seconds.
+    // Fall back to file mtime when no frontmatter date is available.
+    let mut file_mtime_cache: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+    let dates: Vec<u64> = fused
+        .iter()
+        .map(|&(chunk_idx, _)| {
+            let entry = manifest.chunks.get(chunk_idx);
+            entry
+                .map(|e| {
+                    // Prefer frontmatter date; fall back to file mtime
+                    e.date.unwrap_or_else(|| {
+                        *file_mtime_cache
+                            .entry(e.source_file.clone())
+                            .or_insert_with(|| {
+                                manifest
+                                    .files
+                                    .iter()
+                                    .find(|f| f.path == e.source_file)
+                                    .map(|f| f.mtime)
+                                    .unwrap_or(0)
+                            })
+                    })
+                })
+                .unwrap_or(0)
+        })
+        .collect();
+
+    // Find min/max for normalization.
+    let min_date = dates.iter().min().copied().unwrap_or(0);
+    let max_date = dates.iter().max().copied().unwrap_or(0);
+    let range = max_date as f64 - min_date as f64;
+
+    // If all dates are the same, use factor 0.5 (neutral).
+    let factors: Vec<f64> = if range < 1.0 {
+        vec![0.5; dates.len()]
+    } else {
+        dates
+            .iter()
+            .map(|&d| (d as f64 - min_date as f64) / range)
+            .collect()
+    };
+
+    // Apply boost and re-sort.
+    let mut scored: Vec<(usize, f64)> = fused
+        .iter()
+        .zip(factors)
+        .map(|((idx, score), factor)| (*idx, *score * (1.0 + weight * factor)))
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored
 }
 
 /// Extract a preview of ~`max_len` characters from the beginning of the text.
@@ -1035,5 +1116,214 @@ mod tests {
             "Dense mode should also degrade to Sparse, got {:?}",
             outcome_dense.mode_used
         );
+    }
+
+    // ---- Recency scoring tests ----
+
+    #[test]
+    fn test_recency_boost_weight_zero_returns_identical() {
+        let manifest = crate::storage::SearchManifest {
+            version: crate::storage::INDEX_FORMAT_VERSION,
+            model_id: String::new(),
+            embedding_dim: 1024,
+            chunk_config: crate::storage::ChunkConfigSnapshot {
+                max_tokens: 512,
+                overlap_tokens: 64,
+                min_chunk_size: 32,
+                merge_threshold: 30,
+            },
+            files: vec![
+                crate::storage::FileInfo {
+                    path: "old.md".to_string(),
+                    content_hash: "abc".to_string(),
+                    mtime: 1_700_000_000,
+                    chunk_ids: vec!["old:0".to_string()],
+                },
+                crate::storage::FileInfo {
+                    path: "new.md".to_string(),
+                    content_hash: "def".to_string(),
+                    mtime: 1_800_000_000,
+                    chunk_ids: vec!["new:0".to_string()],
+                },
+            ],
+            chunks: vec![
+                crate::storage::ChunkEntry {
+                    id: "old:0".to_string(),
+                    source_file: "old.md".to_string(),
+                    line_start: 0,
+                    line_end: 10,
+                    heading: None,
+                    heading_path: Vec::new(),
+                    tags: vec![],
+                    date: Some(1_700_000_000),
+                },
+                crate::storage::ChunkEntry {
+                    id: "new:0".to_string(),
+                    source_file: "new.md".to_string(),
+                    line_start: 0,
+                    line_end: 10,
+                    heading: None,
+                    heading_path: Vec::new(),
+                    tags: vec![],
+                    date: Some(1_800_000_000),
+                },
+            ],
+            content_hash: String::new(),
+            last_indexed: None,
+            has_embeddings: false,
+        };
+
+        // Equal scores, weight=0 should preserve original order
+        let fused = vec![(0, 1.0), (1, 1.0)];
+        let result = apply_recency_boost(&fused, &manifest, 0.0);
+        // With zero weight, scores are unchanged but still sorted by score (equal)
+        assert_eq!(result.len(), 2);
+        // Both should have the same adjusted score (1.0 * (1 + 0 * factor) = 1.0)
+        assert!((result[0].1 - 1.0).abs() < f64::EPSILON);
+        assert!((result[1].1 - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_recency_boost_newest_ranks_higher() {
+        let manifest = crate::storage::SearchManifest {
+            version: crate::storage::INDEX_FORMAT_VERSION,
+            model_id: String::new(),
+            embedding_dim: 1024,
+            chunk_config: crate::storage::ChunkConfigSnapshot {
+                max_tokens: 512,
+                overlap_tokens: 64,
+                min_chunk_size: 32,
+                merge_threshold: 30,
+            },
+            files: vec![],
+            chunks: vec![
+                crate::storage::ChunkEntry {
+                    id: "old:0".to_string(),
+                    source_file: "old.md".to_string(),
+                    line_start: 0,
+                    line_end: 10,
+                    heading: None,
+                    heading_path: Vec::new(),
+                    tags: vec![],
+                    date: Some(1_700_000_000), // older
+                },
+                crate::storage::ChunkEntry {
+                    id: "new:0".to_string(),
+                    source_file: "new.md".to_string(),
+                    line_start: 0,
+                    line_end: 10,
+                    heading: None,
+                    heading_path: Vec::new(),
+                    tags: vec![],
+                    date: Some(1_800_000_000), // newer
+                },
+            ],
+            content_hash: String::new(),
+            last_indexed: None,
+            has_embeddings: false,
+        };
+
+        // Equal base scores, positive weight should boost newer doc
+        let fused = vec![(0, 1.0), (1, 1.0)];
+        let result = apply_recency_boost(&fused, &manifest, 0.5);
+
+        // Newest should rank first
+        assert_eq!(result[0].0, 1, "newest doc should rank first");
+        assert_eq!(result[1].0, 0, "oldest doc should rank second");
+        // Newest gets boosted: 1.0 * (1 + 0.5 * 1.0) = 1.5
+        assert!((result[0].1 - 1.5).abs() < f64::EPSILON);
+        // Oldest gets neutral: 1.0 * (1 + 0.5 * 0.0) = 1.0
+        assert!((result[1].1 - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_recency_boost_all_same_date() {
+        let manifest = crate::storage::SearchManifest {
+            version: crate::storage::INDEX_FORMAT_VERSION,
+            model_id: String::new(),
+            embedding_dim: 1024,
+            chunk_config: crate::storage::ChunkConfigSnapshot {
+                max_tokens: 512,
+                overlap_tokens: 64,
+                min_chunk_size: 32,
+                merge_threshold: 30,
+            },
+            files: vec![],
+            chunks: vec![
+                crate::storage::ChunkEntry {
+                    id: "a:0".to_string(),
+                    source_file: "a.md".to_string(),
+                    line_start: 0,
+                    line_end: 10,
+                    heading: None,
+                    heading_path: Vec::new(),
+                    tags: vec![],
+                    date: Some(1_750_000_000),
+                },
+                crate::storage::ChunkEntry {
+                    id: "b:0".to_string(),
+                    source_file: "b.md".to_string(),
+                    line_start: 0,
+                    line_end: 10,
+                    heading: None,
+                    heading_path: Vec::new(),
+                    tags: vec![],
+                    date: Some(1_750_000_000),
+                },
+            ],
+            content_hash: String::new(),
+            last_indexed: None,
+            has_embeddings: false,
+        };
+
+        let fused = vec![(0, 1.0), (1, 2.0)];
+        let result = apply_recency_boost(&fused, &manifest, 0.5);
+
+        // All same date -> factor 0.5, so both get same multiplier
+        let multiplier = 1.0 + 0.5 * 0.5; // 1.25
+        // Higher original score should still rank first
+        assert_eq!(result[0].0, 1, "higher original score should rank first");
+        assert!((result[0].1 - 2.0 * multiplier).abs() < f64::EPSILON);
+        assert!((result[1].1 - 1.0 * multiplier).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_recency_boost_falls_back_to_mtime() {
+        let manifest = crate::storage::SearchManifest {
+            version: crate::storage::INDEX_FORMAT_VERSION,
+            model_id: String::new(),
+            embedding_dim: 1024,
+            chunk_config: crate::storage::ChunkConfigSnapshot {
+                max_tokens: 512,
+                overlap_tokens: 64,
+                min_chunk_size: 32,
+                merge_threshold: 30,
+            },
+            files: vec![crate::storage::FileInfo {
+                path: "no-date.md".to_string(),
+                content_hash: "abc".to_string(),
+                mtime: 1_700_000_000,
+                chunk_ids: vec!["no-date:0".to_string()],
+            }],
+            chunks: vec![crate::storage::ChunkEntry {
+                id: "no-date:0".to_string(),
+                source_file: "no-date.md".to_string(),
+                line_start: 0,
+                line_end: 10,
+                heading: None,
+                heading_path: Vec::new(),
+                tags: vec![],
+                date: None, // no frontmatter date
+            }],
+            content_hash: String::new(),
+            last_indexed: None,
+            has_embeddings: false,
+        };
+
+        let fused = vec![(0, 1.0)];
+        let result = apply_recency_boost(&fused, &manifest, 0.5);
+
+        // Should not panic and should produce results using mtime fallback
+        assert_eq!(result.len(), 1);
     }
 }

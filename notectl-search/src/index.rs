@@ -219,6 +219,7 @@ impl<'a> IndexBuilder<'a> {
                     heading: chunk.heading.clone(),
                     heading_path: chunk.heading_path.clone(),
                     tags: chunk.tags.clone(),
+                    date: chunk.date,
                 });
                 pending.push(chunk);
 

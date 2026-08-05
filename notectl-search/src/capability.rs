@@ -109,6 +109,11 @@ pub struct SearchRequest {
         description = "Filter results to only chunks whose file has ALL specified tags (case-insensitive)"
     )]
     pub tags: Option<Vec<String>>,
+
+    /// Recency weight for search ranking (default 0.5). Set to 0 to disable.
+    #[arg(long, help = "Recency weight for ranking (0 to disable, default 0.5)")]
+    #[schemars(description = "Recency weight applied post-RRF fusion (0 to disable, default 0.5)")]
+    pub recency_weight: Option<f64>,
 }
 
 /// Response from the search operation
@@ -212,6 +217,7 @@ impl SearchCapability {
         mode: SearchMode,
         no_reindex: bool,
         tags: Vec<String>,
+        recency_weight: Option<f64>,
     ) -> CapabilityResult<SearchResponse> {
         let options = crate::search::SearchOptions {
             mode,
@@ -219,6 +225,7 @@ impl SearchCapability {
             rrf_k: self.config.search.rrf_k,
             rrf_bm25_weight: self.config.search.rrf_bm25_weight,
             rrf_cosine_weight: self.config.search.rrf_cosine_weight,
+            rrf_recency_weight: recency_weight.unwrap_or(self.config.search.rrf_recency_weight),
             no_reindex,
             tags,
         };
@@ -406,6 +413,12 @@ impl notectl_core::operation::Operation for SearchOperation {
                     .value_delimiter(',')
                     .help("Filter by tags (comma-separated, AND logic)"),
             )
+            .arg(
+                clap::Arg::new("recency_weight")
+                    .long("recency-weight")
+                    .value_parser(clap::value_parser!(f64))
+                    .help("Recency weight for ranking (0 to disable, default 0.5)"),
+            )
     }
 
     async fn execute_json(
@@ -422,6 +435,7 @@ impl notectl_core::operation::Operation for SearchOperation {
                 request.mode.unwrap_or_default(),
                 request.no_reindex.unwrap_or(false),
                 request.tags.unwrap_or_default(),
+                request.recency_weight,
             )
             .await?;
         Ok(serde_json::to_value(response).unwrap())
@@ -443,6 +457,7 @@ impl notectl_core::operation::Operation for SearchOperation {
                     request.mode.unwrap_or_default(),
                     request.no_reindex.unwrap_or(false),
                     request.tags.clone().unwrap_or_default(),
+                    request.recency_weight,
                 )
                 .await?
         } else {
@@ -453,6 +468,7 @@ impl notectl_core::operation::Operation for SearchOperation {
                     request.mode.unwrap_or_default(),
                     request.no_reindex.unwrap_or(false),
                     request.tags.clone().unwrap_or_default(),
+                    request.recency_weight,
                 )
                 .await?
         };
@@ -489,6 +505,9 @@ impl notectl_core::operation::Operation for SearchOperation {
                 "tags".into(),
                 serde_json::json!(v.cloned().collect::<Vec<_>>()),
             );
+        }
+        if let Some(v) = matches.get_one::<f64>("recency_weight") {
+            obj.insert("recency_weight".into(), serde_json::json!(v));
         }
         Ok(serde_json::Value::Object(obj))
     }
