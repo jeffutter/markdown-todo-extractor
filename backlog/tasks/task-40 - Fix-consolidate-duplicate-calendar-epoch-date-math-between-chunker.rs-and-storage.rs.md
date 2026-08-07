@@ -3,11 +3,11 @@ id: TASK-40
 title: >-
   Fix: consolidate duplicate calendar/epoch date-math between chunker.rs and
   storage.rs
-status: In Progress
+status: Done
 assignee:
   - '@ralph'
 created_date: '2026-08-05 14:39'
-updated_date: '2026-08-07 04:43'
+updated_date: '2026-08-07 17:59'
 labels:
   - review-followup
   - planned
