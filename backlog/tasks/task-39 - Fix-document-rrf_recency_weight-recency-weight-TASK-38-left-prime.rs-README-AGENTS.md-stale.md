@@ -3,10 +3,10 @@ id: TASK-39
 title: >-
   Fix: document rrf_recency_weight / --recency-weight (TASK-38 left prime.rs,
   README, AGENTS.md stale)
-status: To Do
+status: Needs Plan
 assignee: []
 created_date: '2026-08-05 14:38'
-updated_date: '2026-08-05 14:38'
+updated_date: '2026-08-07 18:05'
 labels:
   - review-followup
 dependencies:
