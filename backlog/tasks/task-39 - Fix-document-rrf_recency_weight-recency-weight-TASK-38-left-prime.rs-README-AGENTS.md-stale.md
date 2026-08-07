@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-08-05 14:38'
-updated_date: '2026-08-07 18:08'
+updated_date: '2026-08-07 18:09'
 labels:
   - review-followup
 dependencies:
@@ -51,3 +51,15 @@ SETUP (read first): This is a Rust workspace (notectl-core, notectl-search, note
 9. Run: nix develop -c cargo build (docs-only change, but confirms nothing else broke).
 10. No tests exist for prime.rs's generated text content (it's asserted only by manual doc review) -- do not add any; this is a documentation-only fix.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Documentation-only fix. Updated three hand-maintained docs to reflect the --recency-weight CLI flag and rrf_recency_weight config key that were added in TASK-38 but not documented:
+
+1. src/prime.rs: Added --recency-weight line to Search section with default (0.5) and note that 0 disables it. Updated 'Output fields per result' to include date (optional).
+2. README.md: Added rrf_recency_weight = 0.5 to [search] TOML example. Added NOTECTL_SEARCH_RRF_RECENCY_WEIGHT row to env var table.
+3. AGENTS.md: Added rrf_recency_weight = 0.5 to [search] TOML example matching style of neighboring lines.
+
+All values cross-referenced against actual source: capability.rs SearchRequest struct, config.rs SearchConfig defaults.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -3,10 +3,10 @@ id: TASK-40.1
 title: >-
   Create notectl-search/src/civil_date.rs with Hinnant date algorithms and
   round-trip unit tests
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-07 03:40'
-updated_date: '2026-08-07 04:41'
+updated_date: '2026-08-07 18:10'
 labels:
   - planned
 dependencies: []

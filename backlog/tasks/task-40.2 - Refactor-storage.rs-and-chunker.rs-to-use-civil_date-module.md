@@ -1,10 +1,10 @@
 ---
 id: TASK-40.2
 title: Refactor storage.rs and chunker.rs to use civil_date module
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-07 03:45'
-updated_date: '2026-08-07 04:41'
+updated_date: '2026-08-07 18:10'
 labels:
   - planned
 dependencies: []
