@@ -189,9 +189,10 @@ sparse (BM25 keyword) only.
 `{bin} search{vp} <query>`    search across indexed notes
   --limit N                  max results (default 50)
   --mode hybrid|dense|sparse scoring mode (default: hybrid)
-  --no-reindex true|false    skip staleness check/rebuild
+  --no-reindex true|false    skip staleness check/reindex
+  --recency-weight <f64>     recency boost weight (0 disables, default 0.5)
 
-Output fields per result: id, source_file, score, heading (optional), preview
+Output fields per result: id, source_file, score, heading (optional), date (optional), preview
 
 Examples:
   {bin} index{v}

@@ -390,6 +390,7 @@ rrf_bm25_weight = 1.0                        # Weight for BM25 scores in RRF fus
 rrf_cosine_weight = 1.0                      # Weight for cosine scores in RRF fusion
 max_results = 50                             # Maximum results returned per query
 merge_threshold = 30                         # Merge tiny sections below this token count
+rrf_recency_weight = 0.5                     # Recency boost weight post-RRF fusion (0 disables)
 cache_dir = ".notectl/search"                # Index cache directory
 ```
 
@@ -408,6 +409,7 @@ All search config values can also be overridden via environment variables:
 | `NOTECTL_SEARCH_RRF_K`           | `search.rrf_k`       |
 | `NOTECTL_SEARCH_RRF_BM25_WEIGHT` | `search.rrf_bm25_weight` |
 | `NOTECTL_SEARCH_RRF_COSINE_WEIGHT` | `search.rrf_cosine_weight` |
+| `NOTECTL_SEARCH_RRF_RECENCY_WEIGHT` | `search.rrf_recency_weight` |
 | `NOTECTL_SEARCH_SPARSE_WEIGHTS`  | `search.sparse_weights` |
 | `NOTECTL_SEARCH_CACHE_DIR`       | `search.cache_dir`   |
 | `NOTECTL_SEARCH_MAX_RESULTS`     | `search.max_results` |

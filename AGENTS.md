@@ -158,6 +158,7 @@ rrf_bm25_weight = 1.0                        # BM25 weight in RRF fusion
 rrf_cosine_weight = 1.0                      # Cosine weight in RRF fusion
 max_results = 50                             # Max results per query
 merge_threshold = 30                         # Merge tiny sections below this token count
+rrf_recency_weight = 0.5                     # Recency boost weight (0 disables)
 cache_dir = ".notectl/search"                # Index cache directory
 ```
 
