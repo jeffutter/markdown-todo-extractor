@@ -752,29 +752,12 @@ pub(crate) fn chrono_now_rfc3339() -> String {
     let seconds = time_of_day % 60;
 
     // Calculate year, month, day from days since epoch (1970-01-01).
-    let (year, month, day) = days_to_ymd(days_since_epoch);
+    let (year, month, day) = crate::civil_date::civil_from_days(days_since_epoch as i64);
 
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, month, day, hours, minutes, seconds
     )
-}
-
-/// Convert days since Unix epoch to (year, month, day).
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
-    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
-    let z = days + 719468;
-    let era = z / 146097;
-    let doe = z - era * 146097; // day of the 400-year cycle
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of the 4-year cycle
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of the year (0-based)
-    let mp = (5 * doy + 2) / 153; // month (0 = March, 11 = February)
-    let d = doy - (153 * mp + 2) / 5 + 1; // day (1-based)
-    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // month (1-based)
-    let y = if m <= 2 { y + 1 } else { y }; // adjust year for Jan/Feb
-
-    (y, m, d)
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,13 +1508,13 @@ mod tests {
     #[test]
     fn test_rfc3339_formatting() {
         // Verify the date algorithm produces reasonable output.
-        let (year, month, day) = days_to_ymd(0);
+        let (year, month, day) = crate::civil_date::civil_from_days(0);
         assert_eq!(year, 1970);
         assert_eq!(month, 1);
         assert_eq!(day, 1);
 
         // 2024-01-01 is day 19723.
-        let (year, month, day) = days_to_ymd(19723);
+        let (year, month, day) = crate::civil_date::civil_from_days(19723);
         assert_eq!(year, 2024);
         assert_eq!(month, 1);
         assert_eq!(day, 1);

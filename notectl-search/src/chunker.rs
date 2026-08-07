@@ -42,7 +42,8 @@ fn parse_bare_date(s: &str) -> Option<u64> {
         return None;
     }
 
-    ymd_to_epoch(year, month, day, 0, 0, 0, 0, 0)
+    let days_since_epoch = crate::civil_date::civil_to_days_since_epoch(year, month, day);
+    Some((days_since_epoch * 86_400) as u64)
 }
 
 /// Parse an ISO 8601 datetime string into epoch seconds.
@@ -108,16 +109,11 @@ fn parse_iso8601_datetime(s: &str) -> Option<u64> {
         .parse()
         .ok()?;
 
-    ymd_to_epoch(
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second as u32,
-        (tz_offset_minutes.abs() / 60) as u32,
-        if tz_offset_minutes < 0 { 1 } else { 0 },
-    )
+    let days_since_epoch = crate::civil_date::civil_to_days_since_epoch(year, month, day);
+    let tod_secs = (hour as i64) * 3600 + (minute as i64) * 60 + (second as i64);
+    let tz_offset_secs = -tz_offset_minutes as i64 * 60;
+    let total_secs = days_since_epoch * 86_400 + tod_secs + tz_offset_secs;
+    Some(total_secs as u64)
 }
 
 /// Check if the string ends with a timezone offset like +HH:MM or -HH:MM.
@@ -145,70 +141,6 @@ fn regex_like_tz_at_end(s: &str) -> Option<&str> {
     }
 
     Some(rest)
-}
-
-/// Convert a calendar date/time to Unix epoch seconds.
-#[allow(clippy::too_many_arguments)]
-fn ymd_to_epoch(
-    year: i32,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-    second: u32,
-    tz_offset_hours: u32,
-    tz_is_negative: u32,
-) -> Option<u64> {
-    let y = year as i64;
-    let days_before_year = y * 365 + (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400;
-
-    let month_days = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-
-    let mut days_in_year = 0i64;
-    for m in 1..month {
-        days_in_year += month_days[m as usize] as i64;
-        if m == 2 && is_leap {
-            days_in_year += 1;
-        }
-    }
-    days_in_year += (day - 1) as i64;
-
-    let epoch_base = ymd_to_days_since_epoch(1970, 1, 1);
-    let total_days = days_before_year + days_in_year - epoch_base;
-
-    let tod_secs = (hour as i64) * 3600 + (minute as i64) * 60 + (second as i64);
-
-    // Timezone offset in seconds (subtract to convert local → UTC)
-    let tz_offset_secs = if tz_is_negative == 0 {
-        (tz_offset_hours as i64) * 3600
-    } else {
-        -(tz_offset_hours as i64) * 3600
-    };
-
-    let total_secs = total_days * 86400 + tod_secs - tz_offset_secs;
-
-    Some(total_secs as u64)
-}
-
-/// Convert a calendar date to days since some reference point.
-fn ymd_to_days_since_epoch(year: i32, month: u32, day: u32) -> i64 {
-    let y = year as i64;
-    let days_before_year = y * 365 + (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400;
-
-    let month_days = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-
-    let mut days_in_year = 0i64;
-    for m in 1..month {
-        days_in_year += month_days[m as usize] as i64;
-        if m == 2 && is_leap {
-            days_in_year += 1;
-        }
-    }
-    days_in_year += (day - 1) as i64;
-
-    days_before_year + days_in_year
 }
 
 /// A text chunk produced by the chunker

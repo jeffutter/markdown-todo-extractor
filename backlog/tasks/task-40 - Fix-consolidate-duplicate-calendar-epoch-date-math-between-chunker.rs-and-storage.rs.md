@@ -3,11 +3,14 @@ id: TASK-40
 title: >-
   Fix: consolidate duplicate calendar/epoch date-math between chunker.rs and
   storage.rs
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@ralph'
 created_date: '2026-08-05 14:39'
+updated_date: '2026-08-07 04:43'
 labels:
   - review-followup
+  - planned
 dependencies:
   - TASK-38
 priority: high
@@ -34,16 +37,33 @@ Found while reviewing TASK-38 (notectl-search/src/chunker.rs:152-212). TASK-38 a
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-SETUP (read first): This is a Rust workspace (notectl-core, notectl-search, notectl-outline, and the notectl/notectl-remote binaries). ALL commands must run inside the Nix dev shell: either run 'direnv allow' once, or prefix every command with 'nix develop -c'. Work from the repository root unless told otherwise. Do not change pinned dependency versions.
+Consolidate duplicate calendar/epoch date-math into a single civil_date module.
 
-1. Create notectl-search/src/civil_date.rs. Move storage.rs's days_to_ymd (storage.rs:764-778, the Howard Hinnant civil_from_days algorithm) into it verbatim as a pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32).
-2. In the same file, add the reciprocal pub(crate) fn days_from_civil(year: i32, month: u32, day: u32) -> i64, using Hinnant's days_from_civil algorithm (see http://howardhinnant.github.io/date_algorithms.html) -- the same source already cited in storage.rs's comment -- rather than the linear proleptic-Gregorian formula currently in chunker.rs's ymd_to_days_since_epoch. This makes both directions share one cross-checked algorithm family instead of two independently-derived ones.
-3. Add unit tests in civil_date.rs asserting days_from_civil and civil_from_days round-trip correctly for: the Unix epoch (1970-01-01 -> 0), a pre-epoch date, a leap-year Feb 29 (e.g. 2024-02-29), a century non-leap year (e.g. 2100-02-28), and a Y2K boundary (2000-01-01).
-4. In notectl-search/src/lib.rs, add 'mod civil_date;' (or 'pub(crate) mod civil_date;') alongside the other module declarations.
-5. In notectl-search/src/storage.rs: delete the local days_to_ymd function (storage.rs:764-778). Update chrono_now_rfc3339 (storage.rs:740-761) to call crate::civil_date::civil_from_days instead, adjusting the u64/i64 signature mismatch as needed (existing code passes days_since_epoch: u64; civil_from_days should accept i64 per Hinnant's convention -- cast at the call site, or keep a u64 wrapper local to storage.rs that just forwards to the crate fn).
-6. In notectl-search/src/chunker.rs: delete ymd_to_epoch (chunker.rs:152-192) and ymd_to_days_since_epoch (chunker.rs:195-212). Reimplement ymd_to_epoch's job (combine calendar date + time-of-day + timezone offset into epoch seconds) as a thin function that calls crate::civil_date::days_from_civil for the date part, then adds the time-of-day and subtracts the timezone offset exactly as the current ymd_to_epoch body already does (chunker.rs:177-191) -- keep that arithmetic, only replace the day-counting call.
-7. Update the two moved tests at storage.rs:1528 and storage.rs:1534 (test_... using days_to_ymd(0) and days_to_ymd(19723)) to call civil_date::civil_from_days instead, or move them into civil_date.rs's own test module per step 3 and delete the storage.rs copies if step 3's round-trip tests already cover the same inputs.
-8. Run: nix develop -c cargo test -p notectl-search --all-features
-9. Run: nix develop -c cargo clippy -p notectl-search --all-features -- -D warnings
-10. Run: nix develop -c cargo fmt --check -p notectl-search (or cargo fmt -p notectl-search if the project doesn't gate on fmt in CI -- check AGENTS.md for the project's formatting convention before running).
+## Overview
+notectl-search currently has two independent implementations of calendar↔epoch conversion: storage.rs owns days_to_ymd (Hinnant's civil_from_days) and chunker.rs owns ymd_to_epoch + ymd_to_days_since_epoch (linear proleptic-Gregorian formula). These must be unified into one shared module to eliminate duplication risk.
+
+## Sub-ticket breakdown
+
+### TASK-40.1 — Create civil_date.rs (execute first)
+Creates notectl-search/src/civil_date.rs with both directions:
+- pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) — Hinnant's civil_from_days algorithm
+- pub(crate) fn days_from_civil(year: i32, month: u32, day: u32) -> i64 — Hinnant's reciprocal
+- Round-trip unit tests covering: epoch boundary (1970-01-01 ↔ 0), pre-epoch dates, leap-year Feb 29, century non-leap (2100), Y2K boundary
+
+### TASK-40.2 — Refactor callers (depends on 40.1)
+Removes local implementations from both files:
+- storage.rs: delete days_to_ymd, wire chrono_now_rfc3339 through civil_date::civil_from_days
+- chunker.rs: delete ymd_to_epoch and ymd_to_days_since_epoch, reimplement as thin wrappers calling civil_date::days_from_civil for the date portion
+- Move existing days_to_ymd tests from storage.rs into civil_date.rs or update them in place
+
+## Execution order
+1. TASK-40.1 (create module + tests)
+2. TASK-40.2 (refactor callers)
+3. Verify: cargo test -p notectl-search --all-features, clippy with no warnings
+
+## Integration notes
+- No new dependencies added (Hinnant algorithms are ~40 lines total)
+- Signature adjustments needed: storage.rs passes u64 but Hinnant uses i64; cast at call site
+- chunker.rs keeps time-of-day + timezone arithmetic unchanged, only replaces the day-counting call
+- All 260+ existing tests must pass unchanged
 <!-- SECTION:PLAN:END -->

@@ -103,9 +103,12 @@ All worker calls go through one helper, `runHeadless(promptOrArgs, opts)`,
 wrapping `pi.exec("pi", ["-p", ...flags, prompt], { timeout, signal })`.
 Flags used: `--skill <path>` (backlog-execute / backlog-planner), `--model
 <alias>` (`research`, `planning` — both pre-configured aliases in this user's
-pi settings), `--no-session` (worker runs are one-shot, no need to persist).
-Each call has a generous timeout (ticket work can run long); a timeout is
-treated as a `failed` outcome, not a thrown error.
+pi settings), `--session-id ralph-<runId>-<seq>-<label>` (predictable, derived
+from the loop's own `startedAt` plus a per-call counter — not `--no-session`,
+since a named session's transcript is written incrementally and survives even
+if the subprocess later hangs and gets killed, which a truly ephemeral session
+would lose). Each call has a generous timeout (ticket work can run long); a
+timeout is treated as a `failed` outcome, not a thrown error.
 
 ## Herdr Requirement (Review Step)
 

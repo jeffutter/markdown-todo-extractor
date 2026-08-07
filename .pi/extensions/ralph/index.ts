@@ -90,6 +90,13 @@ type RalphHistoryEntry = {
 
 type RalphState = {
   status: RalphStatus;
+  /** Identifies this loop run (this process's `/ralph` invocation) as the parent of every
+   * headless subprocess it spawns — see `runHeadless`'s session-id scheme. Derived from
+   * `startedAt`, not random, so it's reconstructable from history.jsonl alone. */
+  runId: string;
+  /** Count of headless `pi -p` calls spawned so far this run; used only to make each one's
+   * `--session-id` unique (retries of the same kind+ticket would otherwise collide). */
+  headlessCallSeq: number;
   iterations: number;
   reviewEvery: number;
   loopCount: number;
@@ -143,8 +150,12 @@ let activeState: RalphState | null = null;
 // --- State persistence -----------------------------------------------------
 
 function createState(iterations: number, reviewEvery: number): RalphState {
+  const startedAt = new Date().toISOString();
   return {
     status: "running",
+    // Filesystem/session-id-safe slug: strips colons and the trailing "Z"/ms punctuation.
+    runId: startedAt.replace(/[:.]/g, "-"),
+    headlessCallSeq: 0,
     iterations,
     reviewEvery,
     loopCount: 0,
@@ -153,7 +164,7 @@ function createState(iterations: number, reviewEvery: number): RalphState {
     currentStep: undefined,
     currentStepStartedAt: undefined,
     currentStepTimeoutMs: undefined,
-    startedAt: new Date().toISOString(),
+    startedAt,
     history: [],
     failureStreak: undefined,
     repeatedChoiceStreak: undefined,
@@ -373,13 +384,36 @@ function tailSummary(output: string, maxLen = 240): string {
   return collapsed.length > maxLen ? `…${collapsed.slice(-maxLen)}` : collapsed;
 }
 
+/**
+ * Builds this call's `--session-id`: `ralph-<runId>-<seq>-<label>`, e.g.
+ * `ralph-2026-08-07T04-37-01-554Z-3-execute-TASK-40`. Predictable and derived entirely from
+ * this run's own bookkeeping (no randomness) — given a hung/failed entry in history.jsonl you
+ * can reconstruct which session file holds its transcript (`~/.pi/agent/sessions/...`) without
+ * having had to go find it while the call was still in flight. Using a real (named) session
+ * instead of `--no-session` also means the transcript is written incrementally, so it survives
+ * even if the subprocess hangs and is later killed — see the note on `execCapture` above about
+ * `pi.exec` not reliably killing a stuck child.
+ *
+ * Each call gets a fresh, never-reused id (the counter only goes up) so a retried step starts a
+ * brand-new session rather than resuming the prior attempt's — headless calls are deliberately
+ * stateless between retries (the "Ralph" technique, see file header), and reusing an id would
+ * feed the retry the previous attempt's conversation as history.
+ */
+function nextSessionId(state: RalphState, label: string): string {
+  state.headlessCallSeq += 1;
+  return `ralph-${state.runId}-${state.headlessCallSeq}-${label}`;
+}
+
 async function runHeadless(
   pi: ExtensionAPI,
   cwd: string,
+  state: RalphState,
+  label: string,
   prompt: string,
   opts: { timeout: number; model?: string; extensions?: string[] },
 ): Promise<{ ok: boolean; killed: boolean; output: string }> {
-  const args = ["-p", "--no-session", "--no-extensions"];
+  const sessionId = nextSessionId(state, label);
+  const args = ["-p", "--session-id", sessionId, "--no-extensions"];
   for (const ext of opts.extensions ?? []) args.push("-e", ext);
   if (opts.model) args.push("--model", opts.model);
   args.push(prompt);
@@ -443,9 +477,14 @@ async function doExecute(
   ticket: Ticket,
 ): Promise<boolean> {
   setCurrentStep(ctx, state, `executing ${ticket.id}`, EXECUTE_TIMEOUT_MS);
-  const result = await runHeadless(pi, cwd, `/backlog-execute ${ticket.id}`, {
-    timeout: EXECUTE_TIMEOUT_MS,
-  });
+  const result = await runHeadless(
+    pi,
+    cwd,
+    state,
+    `execute-${ticket.id}`,
+    `/backlog-execute ${ticket.id}`,
+    { timeout: EXECUTE_TIMEOUT_MS },
+  );
   if (result.ok) state.executedSinceReview += 1;
   await recordHistory(cwd, state, {
     kind: "execute",
@@ -480,7 +519,9 @@ async function classifyTrivial(
 
     End your final message with a line containing exactly one word and nothing else: TRIVIAL or NORMAL.
   `;
-  const result = await runHeadless(pi, cwd, prompt, { timeout: TRIAGE_TIMEOUT_MS });
+  const result = await runHeadless(pi, cwd, state, `triage-${ticket.id}`, prompt, {
+    timeout: TRIAGE_TIMEOUT_MS,
+  });
   const verdict = extractMarkerLine(result.output, ["TRIVIAL", "NORMAL"]);
   await recordHistory(cwd, state, {
     kind: "plan",
@@ -522,11 +563,18 @@ async function doPlan(
     relevant prior art, library documentation, or best practices that would help write a thorough
     implementation plan. Return a concise research summary (bullet points), not a plan.
   `;
-  const research = await runHeadless(pi, cwd, researchPrompt, {
-    timeout: RESEARCH_TIMEOUT_MS,
-    model: "research",
-    extensions: [PI_WEB_ACCESS_EXTENSION],
-  });
+  const research = await runHeadless(
+    pi,
+    cwd,
+    state,
+    `research-${ticket.id}`,
+    researchPrompt,
+    {
+      timeout: RESEARCH_TIMEOUT_MS,
+      model: "research",
+      extensions: [PI_WEB_ACCESS_EXTENSION],
+    },
+  );
   await recordHistory(cwd, state, {
     kind: "plan",
     ticket: ticket.id,
@@ -548,7 +596,7 @@ async function doPlan(
     exited early because it found unplanned child tickets, leave the status as-is and explain why in
     your final message.
   `;
-  const plan = await runHeadless(pi, cwd, planPrompt, {
+  const plan = await runHeadless(pi, cwd, state, `plan-${ticket.id}`, planPrompt, {
     timeout: PLAN_TIMEOUT_MS,
     model: "planning",
   });
@@ -592,7 +640,7 @@ async function doChoose(
     most future work, and risk. Then run: backlog task edit <chosen-id> -s "Needs Plan". End your final
     message with a line containing only the chosen ticket ID.
   `;
-  const result = await runHeadless(pi, cwd, prompt, {
+  const result = await runHeadless(pi, cwd, state, "choose", prompt, {
     timeout: CHOOSE_TIMEOUT_MS,
     model: "chat-fast",
   });
@@ -657,7 +705,7 @@ async function doReview(
     line containing exactly \`REVIEW_PANE_ID: <new-pane-id>\` (the id from step 1) so the caller can verify
     the pane is gone.
   `;
-  const result = await runHeadless(pi, cwd, prompt, {
+  const result = await runHeadless(pi, cwd, state, "review", prompt, {
     timeout: REVIEW_TIMEOUT_MS,
   });
 

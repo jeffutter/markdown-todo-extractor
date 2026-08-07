@@ -67,7 +67,9 @@
       "WebFetch(domain:worktrunk.dev)",
       "Bash(wt --version)",
       "Bash(git -C /home/jeffutter/src/notectl check-ignore -v .envrc)",
-      "Bash(git -C /home/jeffutter/src/notectl ls-files .envrc)"
+      "Bash(git -C /home/jeffutter/src/notectl ls-files .envrc)",
+      "Bash(ps --ppid 4004583 -o pid,stat,etime,cmd)",
+      "Bash(pstree -p 4004583)"
     ],
     "deny": [],
     "ask": []

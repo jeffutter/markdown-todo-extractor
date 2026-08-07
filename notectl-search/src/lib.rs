@@ -1,6 +1,7 @@
 pub mod bm25;
 pub mod capability;
 pub mod chunker;
+pub mod civil_date;
 pub mod embeddings;
 pub mod fusion;
 pub mod index;
