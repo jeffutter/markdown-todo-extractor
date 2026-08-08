@@ -120,7 +120,9 @@ pub struct SearchConfig {
     #[serde(default)]
     pub exclude_headings: Vec<String>,
 
-    /// Recency weight applied post-RRF fusion (default 0.5). Set to 0 to disable.
+    /// Default recency weight applied post-RRF fusion when a search request
+    /// opts in to recency boosting (default 0.5). Recency boosting itself is
+    /// off by default; callers enable it per-request.
     #[serde(default = "default_rrf_recency_weight")]
     pub rrf_recency_weight: f64,
 }

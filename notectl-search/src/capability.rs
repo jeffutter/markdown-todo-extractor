@@ -110,10 +110,47 @@ pub struct SearchRequest {
     )]
     pub tags: Option<Vec<String>>,
 
-    /// Recency weight for search ranking (default 0.5). Set to 0 to disable.
-    #[arg(long, help = "Recency weight for ranking (0 to disable, default 0.5)")]
-    #[schemars(description = "Recency weight applied post-RRF fusion (0 to disable, default 0.5)")]
+    /// Boost results by recency (default false)
+    #[arg(long, help = "Boost results by recency (default false)")]
+    #[schemars(description = "If true, boost search results by recency (default false)")]
+    pub enable_recency: Option<bool>,
+
+    /// Recency weight for search ranking, applied only when enable_recency is true (default 0.5)
+    #[arg(long, help = "Recency weight when enabled (default 0.5)")]
+    #[schemars(
+        description = "Recency weight applied post-RRF fusion when enable_recency is true (default 0.5)"
+    )]
     pub recency_weight: Option<f64>,
+}
+
+/// Query parameters accepted by [`SearchCapability::do_search`], gathered into
+/// one struct so callers (CLI, HTTP, MCP) don't have to match a long
+/// positional argument list.
+pub struct SearchQuery {
+    pub query: String,
+    pub limit: usize,
+    pub mode: SearchMode,
+    pub no_reindex: bool,
+    pub tags: Vec<String>,
+    /// Recency boosting is opt-in: it only applies when true, in which case
+    /// `recency_weight` overrides the configured default.
+    pub enable_recency: bool,
+    pub recency_weight: Option<f64>,
+}
+
+impl SearchRequest {
+    /// Resolve defaults into a [`SearchQuery`] ready for [`SearchCapability::do_search`].
+    fn to_query(&self) -> SearchQuery {
+        SearchQuery {
+            query: self.query.clone(),
+            limit: self.limit.unwrap_or(50),
+            mode: self.mode.unwrap_or_default(),
+            no_reindex: self.no_reindex.unwrap_or(false),
+            tags: self.tags.clone().unwrap_or_default(),
+            enable_recency: self.enable_recency.unwrap_or(false),
+            recency_weight: self.recency_weight,
+        }
+    }
 }
 
 /// Response from the search operation
@@ -210,27 +247,26 @@ impl SearchCapability {
     }
 
     /// Execute a search query with the given options.
-    pub async fn do_search(
-        &self,
-        query: &str,
-        limit: usize,
-        mode: SearchMode,
-        no_reindex: bool,
-        tags: Vec<String>,
-        recency_weight: Option<f64>,
-    ) -> CapabilityResult<SearchResponse> {
+    pub async fn do_search(&self, query: SearchQuery) -> CapabilityResult<SearchResponse> {
+        let rrf_recency_weight = if query.enable_recency {
+            query
+                .recency_weight
+                .unwrap_or(self.config.search.rrf_recency_weight)
+        } else {
+            0.0
+        };
         let options = crate::search::SearchOptions {
-            mode,
-            max_results: limit,
+            mode: query.mode,
+            max_results: query.limit,
             rrf_k: self.config.search.rrf_k,
             rrf_bm25_weight: self.config.search.rrf_bm25_weight,
             rrf_cosine_weight: self.config.search.rrf_cosine_weight,
-            rrf_recency_weight: recency_weight.unwrap_or(self.config.search.rrf_recency_weight),
-            no_reindex,
-            tags,
+            rrf_recency_weight,
+            no_reindex: query.no_reindex,
+            tags: query.tags,
         };
 
-        let outcome = crate::search::search(&self.base_path, &self.config, query, options)
+        let outcome = crate::search::search(&self.base_path, &self.config, &query.query, options)
             .await
             .map_err(|e| internal_error(format!("Search failed: {e}")))?;
 
@@ -414,10 +450,16 @@ impl notectl_core::operation::Operation for SearchOperation {
                     .help("Filter by tags (comma-separated, AND logic)"),
             )
             .arg(
+                clap::Arg::new("enable_recency")
+                    .long("enable-recency")
+                    .value_parser(clap::value_parser!(bool))
+                    .help("Boost results by recency (default false)"),
+            )
+            .arg(
                 clap::Arg::new("recency_weight")
                     .long("recency-weight")
                     .value_parser(clap::value_parser!(f64))
-                    .help("Recency weight for ranking (0 to disable, default 0.5)"),
+                    .help("Recency weight when enabled (default 0.5)"),
             )
     }
 
@@ -427,17 +469,7 @@ impl notectl_core::operation::Operation for SearchOperation {
     ) -> Result<serde_json::Value, rmcp::model::ErrorData> {
         let request: SearchRequest = serde_json::from_value(json)
             .map_err(|e| notectl_core::error::invalid_params(e.to_string()))?;
-        let response = self
-            .capability
-            .do_search(
-                &request.query,
-                request.limit.unwrap_or(50),
-                request.mode.unwrap_or_default(),
-                request.no_reindex.unwrap_or(false),
-                request.tags.unwrap_or_default(),
-                request.recency_weight,
-            )
-            .await?;
+        let response = self.capability.do_search(request.to_query()).await?;
         Ok(serde_json::to_value(response).unwrap())
     }
 
@@ -450,27 +482,9 @@ impl notectl_core::operation::Operation for SearchOperation {
         let response = if let Some(ref vault_path) = request.vault_path {
             let config = Arc::new(Config::load_from_base_path(vault_path.as_path()));
             let capability = SearchCapability::new(vault_path.clone(), config);
-            capability
-                .do_search(
-                    &request.query,
-                    request.limit.unwrap_or(50),
-                    request.mode.unwrap_or_default(),
-                    request.no_reindex.unwrap_or(false),
-                    request.tags.clone().unwrap_or_default(),
-                    request.recency_weight,
-                )
-                .await?
+            capability.do_search(request.to_query()).await?
         } else {
-            self.capability
-                .do_search(
-                    &request.query,
-                    request.limit.unwrap_or(50),
-                    request.mode.unwrap_or_default(),
-                    request.no_reindex.unwrap_or(false),
-                    request.tags.clone().unwrap_or_default(),
-                    request.recency_weight,
-                )
-                .await?
+            self.capability.do_search(request.to_query()).await?
         };
 
         Ok(serde_json::to_string_pretty(&response)?)
@@ -505,6 +519,9 @@ impl notectl_core::operation::Operation for SearchOperation {
                 "tags".into(),
                 serde_json::json!(v.cloned().collect::<Vec<_>>()),
             );
+        }
+        if let Some(v) = matches.get_one::<bool>("enable_recency") {
+            obj.insert("enable_recency".into(), serde_json::Value::Bool(*v));
         }
         if let Some(v) = matches.get_one::<f64>("recency_weight") {
             obj.insert("recency_weight".into(), serde_json::json!(v));
@@ -611,6 +628,20 @@ mod remote_command_tests {
     }
 
     #[test]
+    fn search_remote_command_enable_recency_accepts_bool_value() {
+        let op = SearchOperation::new(dummy_capability());
+        let cmd = op.get_remote_command();
+
+        let matches = cmd
+            .try_get_matches_from(["search", "hello", "--enable-recency", "true"])
+            .unwrap();
+        assert_eq!(
+            matches.get_one::<bool>("enable_recency").copied(),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn search_remote_command_args_to_json_no_vault_path_panic() {
         let op = SearchOperation::new(dummy_capability());
         let cmd = op.get_remote_command();
@@ -641,6 +672,10 @@ mod remote_command_tests {
                 "dense",
                 "--no-reindex",
                 "true",
+                "--enable-recency",
+                "true",
+                "--recency-weight",
+                "0.8",
             ])
             .unwrap();
         let json = op
@@ -651,6 +686,8 @@ mod remote_command_tests {
         assert_eq!(json["limit"], 10);
         assert_eq!(json["mode"], "dense");
         assert_eq!(json["no_reindex"], true);
+        assert_eq!(json["enable_recency"], true);
+        assert_eq!(json["recency_weight"], 0.8);
     }
 }
 

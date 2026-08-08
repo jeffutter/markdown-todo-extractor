@@ -190,7 +190,8 @@ sparse (BM25 keyword) only.
   --limit N                  max results (default 50)
   --mode hybrid|dense|sparse scoring mode (default: hybrid)
   --no-reindex true|false    skip staleness check/reindex
-  --recency-weight <f64>     recency boost weight (0 disables, default 0.5; config: rrf_recency_weight)
+  --enable-recency true|false boost results by recency (default false)
+  --recency-weight <f64>     recency boost weight when enabled (default 0.5; config: rrf_recency_weight)
 
 Output fields per result: id, source_file, score, heading (optional), date (optional), preview
 

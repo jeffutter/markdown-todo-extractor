@@ -218,6 +218,10 @@ mod search_tools {
         /// Filter results by tags (AND logic — must match all specified tags)
         #[serde(default)]
         pub tags: Vec<String>,
+        /// If true, boost search results by recency (default false)
+        pub enable_recency: Option<bool>,
+        /// Recency weight applied post-RRF fusion when enable_recency is true (default 0.5)
+        pub recency_weight: Option<f64>,
     }
 
     pub struct SearchTool;
@@ -246,14 +250,15 @@ mod search_tools {
             let response = service
                 .capability_registry
                 .search()
-                .do_search(
-                    &params.query,
-                    params.limit.unwrap_or(50),
-                    params.mode.unwrap_or_default(),
-                    params.no_reindex.unwrap_or(false),
-                    params.tags,
-                    None,
-                )
+                .do_search(notectl_search::SearchQuery {
+                    query: params.query,
+                    limit: params.limit.unwrap_or(50),
+                    mode: params.mode.unwrap_or_default(),
+                    no_reindex: params.no_reindex.unwrap_or(false),
+                    tags: params.tags,
+                    enable_recency: params.enable_recency.unwrap_or(false),
+                    recency_weight: params.recency_weight,
+                })
                 .await?;
             Ok(response)
         }
