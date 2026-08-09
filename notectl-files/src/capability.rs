@@ -251,32 +251,21 @@ fn filter_excluded_sections(content: &str, config: &Config) -> String {
         return content.to_string();
     }
 
-    // Split into raw lines (preserves line content without newline chars).
-    let lines: Vec<&str> = content.lines().collect();
-
-    // Determine if original content ended with a newline.
-    let ends_with_newline = content.ends_with('\n');
-
-    // Build output by walking lines, skipping excluded ranges.
-    let mut result = Vec::with_capacity(lines.len());
-    for (line_idx, line) in lines.iter().enumerate() {
-        let line_num = line_idx + 1; // 1-indexed
+    // Build output by walking inclusive splits, preserving original line
+    // terminators. split_inclusive("\n") keeps each "\n" attached to its line,
+    // so CRLF (\r\n) is preserved as part of the chunk rather than being
+    // stripped and replaced.
+    let mut result = String::with_capacity(content.len());
+    for (line_idx, chunk) in content.split_inclusive("\n").enumerate() {
+        let line_num = line_idx + 1; // 1-indexed to match Section.start_line/end_line
         let skip = excluded_ranges
             .iter()
             .any(|&(start, end)| line_num >= start && line_num <= end);
         if !skip {
-            result.push(*line);
+            result.push_str(chunk);
         }
     }
-
-    // Rejoin with "\n" and restore trailing newline if original had one.
-    // Only add trailing newline if there are remaining lines — don't invent one
-    // when all content was excluded.
-    let mut output = result.join("\n");
-    if !result.is_empty() && ends_with_newline {
-        output.push('\n');
-    }
-    output
+    result
 }
 
 fn read_files_blocking(
@@ -1220,5 +1209,26 @@ mod filter_excluded_sections_tests {
         let config = config_with_exclude_headings(&["Query"]);
         let filtered = filter_excluded_sections(content, &config);
         assert_eq!(filtered, "");
+    }
+
+    // ── CRLF Preservation Tests (TASK-44) ─────────────────────────────────
+
+    /// AC#1: CRLF line endings preserved when a section is excluded.
+    #[test]
+    fn crlf_preserved_when_section_excluded() {
+        let content = "## Intro\r\nIntro text.\r\n\r\n## Dataview Query\r\nQuery stuff.\r\n\r\n## Notes\r\nNotes text.\r\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        let expected = "## Intro\r\nIntro text.\r\n\r\n## Notes\r\nNotes text.\r\n";
+        assert_eq!(filtered, expected);
+    }
+
+    /// AC#2: CRLF content with no matching headings returned byte-for-byte identical.
+    #[test]
+    fn crlf_preserved_when_nothing_excluded() {
+        let content = "## Intro\r\nIntro text.\r\n\r\n## Notes\r\nNotes text.\r\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        assert_eq!(filtered, content);
     }
 }
