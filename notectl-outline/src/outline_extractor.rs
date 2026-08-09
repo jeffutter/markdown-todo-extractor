@@ -204,11 +204,11 @@ impl OutlineExtractor {
         &self,
         content: &str,
     ) -> Result<Vec<Section>, Box<dyn std::error::Error>> {
-        let lines: Vec<&str> = content.lines().collect();
         let headings = self.extract_headings(content);
 
         if headings.is_empty() {
             // No headings - treat the entire file as one section with no heading
+            let total_lines = content.lines().count();
             return Ok(vec![Section {
                 heading: Heading {
                     title: String::new(),
@@ -218,7 +218,7 @@ impl OutlineExtractor {
                 },
                 content: content.trim().to_string(),
                 start_line: 1,
-                end_line: lines.len().max(1),
+                end_line: total_lines.max(1),
             }]);
         }
 
@@ -228,21 +228,16 @@ impl OutlineExtractor {
             let start_line = heading.line_number;
 
             // Determine end line: next heading of same or higher level (smaller number)
+            let total_lines = content.lines().count();
             let end_line = headings
                 .iter()
                 .skip(idx + 1)
                 .find(|h| h.level <= heading.level)
                 .map(|h| h.line_number - 1)
-                .unwrap_or(lines.len());
+                .unwrap_or(total_lines);
 
-            // Extract content (skip the heading line itself, include up to end_line)
-            let section_content = if start_line < lines.len() && end_line <= lines.len() {
-                lines[start_line..end_line].join("\n")
-            } else if start_line < lines.len() {
-                lines[start_line..].join("\n")
-            } else {
-                String::new()
-            };
+            // Extract content preserving original line terminators.
+            let section_content = Self::extract_lines(content, start_line + 1, end_line + 1);
 
             sections.push(Section {
                 heading: Heading {
@@ -270,7 +265,6 @@ impl OutlineExtractor {
         let content = fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read file {:?}: {}", file_path, e))?;
 
-        let lines: Vec<&str> = content.lines().collect();
         let headings = self.extract_headings(&content);
         let mut sections = Vec::new();
 
@@ -281,6 +275,8 @@ impl OutlineExtractor {
             .filter(|(_, h)| h.title.to_lowercase() == target_heading.to_lowercase())
             .map(|(i, _)| i)
             .collect();
+
+        let total_lines = content.lines().count();
 
         for idx in matching_indices {
             let heading = &headings[idx];
@@ -294,21 +290,17 @@ impl OutlineExtractor {
                     .skip(idx + 1)
                     .find(|h| h.level <= heading.level)
                     .map(|h| h.line_number - 1)
-                    .unwrap_or(lines.len())
+                    .unwrap_or(total_lines)
             } else {
                 // Exclude subsections - stop at the next heading of any level
                 headings
                     .get(idx + 1)
                     .map(|h| h.line_number - 1)
-                    .unwrap_or(lines.len())
+                    .unwrap_or(total_lines)
             };
 
-            // Extract content (skip the heading line itself)
-            let section_content = if start_line < lines.len() && end_line <= lines.len() {
-                lines[start_line..end_line].join("\n")
-            } else {
-                String::new()
-            };
+            // Extract content preserving original line terminators.
+            let section_content = Self::extract_lines(&content, start_line + 1, end_line + 1);
 
             sections.push(Section {
                 heading: Heading {
@@ -324,6 +316,38 @@ impl OutlineExtractor {
         }
 
         Ok(sections)
+    }
+
+    /// Extract content between two 1-indexed line numbers, preserving original
+    /// line terminators (CRLF, LF). Uses byte-offset slicing so untouched
+    /// content comes straight from the source bytes.
+    fn extract_lines(content: &str, start_1: usize, end_1: usize) -> String {
+        if start_1 >= end_1 || start_1 < 1 {
+            return String::new();
+        }
+        let sb = Self::line_start_byte(content, start_1);
+        let eb = Self::line_start_byte(content, end_1);
+        if sb >= content.len() {
+            return String::new();
+        }
+        content[sb..eb.min(content.len())].to_string()
+    }
+
+    /// Find the byte offset where line `line_1` (1-indexed) starts.
+    fn line_start_byte(content: &str, line_1: usize) -> usize {
+        if line_1 == 1 {
+            return 0;
+        }
+        let mut count = 0;
+        for (i, b) in content.bytes().enumerate() {
+            if b == b'\n' {
+                count += 1;
+                if count == line_1 - 1 {
+                    return i + 1;
+                }
+            }
+        }
+        content.len()
     }
 
     /// Search for headings matching a pattern across files in a directory
@@ -693,6 +717,59 @@ Second content"
                 .get_section(temp_file.path(), "Duplicate", false)
                 .unwrap();
             assert_eq!(sections.len(), 2);
+        }
+
+        /// AC#1: CRLF line endings preserved in get_section content.
+        #[test]
+        fn test_get_section_crlf_preserved() {
+            let extractor = create_test_extractor();
+            let mut temp_file = NamedTempFile::new().unwrap();
+            use std::io::Write;
+            let crlf_content = b"## Target Section\r\nLine one\r\nLine two\r\n## Next\r\nOther";
+            temp_file.write_all(crlf_content).unwrap();
+
+            let sections = extractor
+                .get_section(temp_file.path(), "Target Section", false)
+                .unwrap();
+            assert_eq!(sections.len(), 1);
+            // Content must preserve \r\n on every retained line
+            let expected = "Line one\r\nLine two";
+            assert_eq!(sections[0].content, expected);
+        }
+    }
+
+    mod extract_sections_from_content {
+        use super::*;
+
+        #[test]
+        fn test_basic_extraction() {
+            let extractor = create_test_extractor();
+            let content = "## Section A\nLine one\nLine two\n## Section B\nOther";
+            let sections = extractor.extract_sections_from_content(content).unwrap();
+            assert_eq!(sections.len(), 2);
+            assert_eq!(sections[0].heading.title, "Section A");
+            assert_eq!(sections[1].heading.title, "Section B");
+        }
+
+        #[test]
+        fn test_no_headings_returns_single_section() {
+            let extractor = create_test_extractor();
+            let content = "Just plain text\nwith multiple lines";
+            let sections = extractor.extract_sections_from_content(content).unwrap();
+            assert_eq!(sections.len(), 1);
+            assert_eq!(sections[0].heading.title, "");
+        }
+
+        /// AC#2: extract_sections_from_content preserves CRLF in Section.content.
+        #[test]
+        fn test_crlf_preserved() {
+            let extractor = create_test_extractor();
+            let content = "## Section A\r\nLine one\r\nLine two\r\n## Section B\r\nOther\r\n";
+            let sections = extractor.extract_sections_from_content(content).unwrap();
+            assert_eq!(sections.len(), 2);
+            let expected_a = "Line one\r\nLine two";
+            assert_eq!(sections[0].content, expected_a);
+            assert_eq!(sections[1].content, "Other");
         }
     }
 
