@@ -1,10 +1,13 @@
 ---
 id: TASK-42
 title: Exclude configured heading sections from raw file and daily-note reads
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@ralph'
 created_date: '2026-08-09 14:15'
-labels: []
+updated_date: '2026-08-09 14:51'
+labels:
+  - planned
 dependencies: []
 documentation:
   - >-
@@ -43,3 +46,77 @@ Also close the documentation gap this surfaced: `exclude_headings` is not curren
 - [ ] #7 README.md and AGENTS.md's `[search]` config table/example include `exclude_headings`
 - [ ] #8 Unit tests cover: a file with one excluded section among several, a file with an excluded section at the end of the file (no following heading), and a file with nested subheadings under an excluded parent heading
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## Implementation Plan
+
+### Architecture Decision
+
+Add heading-section filtering to `read_single_file_blocking()` in notectl-files. Since `get_daily_note` delegates to `FileCapability::read_files()`, both operations get filtering automatically — no separate implementation needed for daily notes.
+
+### Step 1: Add notectl-outline dependency to notectl-files
+
+**File:** `notectl-files/Cargo.toml`
+
+Add `notectl-outline.workspace = true` to `[dependencies]`. This gives access to `OutlineExtractor::extract_sections_from_content()` which already implements the section-boundary semantics (heading + body up to next equal/shallower heading).
+
+### Step 2: Implement filtering utility in notectl-files capability
+
+**File:** `notectl-files/src/capability.rs`
+
+Add a private helper function that takes content and config, extracts sections via OutlineExtractor, filters excluded headings, and reconstructs markdown by joining remaining sections with `\n\n` separators. Each reconstructed section includes its heading line (`#... Title`) followed by its body content.
+
+Key behaviors:
+- Empty `exclude_headings` → returns original content unchanged (AC #4)
+- No headings in file → extract_sections_from_content returns single unheaded section → passes filter → reconstructed as-is (AC #5)
+- Nested subheadings under an excluded parent are within that parent's section boundary, so they're dropped when the parent is excluded
+
+### Step 3: Wire filtering into read_single_file_blocking
+
+**File:** `notectl-files/src/capability.rs`
+
+Modify `read_single_file_blocking()` to accept a `Config` reference and call the filtering function after reading the file. Thread config through from `read_files_blocking()` and `read_files()`. FileCapability already holds `Arc<Config>` so this is straightforward threading.
+
+### Step 4: Add unit tests
+
+**File:** `notectl-files/src/capability.rs` test module
+
+Three test cases covering AC #8:
+1. One excluded among several: File with Intro, Dataview Query, Notes headings → expect Intro + Notes only
+2. Excluded at EOF: File with Intro then Query at end → trailing content disappears cleanly
+3. Nested subheadings under excluded parent: Parent Query with Child/Grandchild → all dropped as one section
+
+Each test creates a temp file, sets up config with exclude_headings, reads via FileCapability, and asserts filtered output.
+
+### Step 5: Documentation updates
+
+**src/prime.rs**: Add exclude_headings documentation in search config section, noting it applies to indexing AND raw file/daily-note reads.
+
+**README.md**: Add exclude_headings to TOML example and env var table row for NOTECTL_SEARCH_EXCLUDE_HEADINGS.
+
+**AGENTS.md**: Add exclude_headings to Search Config TOML example block.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation complete:
+- Added notectl-outline dependency to notectl-files/Cargo.toml
+- Implemented filter_excluded_sections() in notectl-files/src/capability.rs using OutlineExtractor::extract_sections_from_content()
+- Threaded Config through read_files() → read_files_blocking() → read_single_file_blocking()
+- Since get_daily_note delegates to FileCapability::read_files(), both operations get filtering automatically
+- Added 7 unit tests covering AC#1, #2, #3, #4, #5, #8 (one excluded among several, excluded at EOF, nested subheadings under excluded parent, empty exclude_headings, no headings, no matches, case-insensitive)
+- Updated prime.rs with Heading Exclusion section documenting exclude_headings
+- Updated README.md TOML example and env var table with exclude_headings
+- Updated AGENTS.md Search Config TOML example with exclude_headings
+
+Post-review (review-pi-work): TASK-43 filed — filter_excluded_sections() silently drops YAML frontmatter/preamble content before the first heading, and normalizes whitespace between/within retained sections, whenever exclude_headings is non-empty (even if no heading actually matches). Violates AC#5. See TASK-43 for repro and fix plan.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented heading-section exclusion for read_files and get_daily_note operations. Added filter_excluded_sections() in notectl-files/src/capability.rs using OutlineExtractor to identify section boundaries and omit sections matching exclude_headings patterns. Since get_daily_note delegates to FileCapability::read_files(), both surfaces get filtering automatically. Added 7 unit tests covering all AC scenarios. Updated documentation in prime.rs, README.md, and AGENTS.md. All 315 tests pass.
+<!-- SECTION:FINAL_SUMMARY:END -->

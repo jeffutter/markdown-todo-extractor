@@ -2,6 +2,7 @@ use clap::{CommandFactory, FromArgMatches};
 use notectl_core::CapabilityResult;
 use notectl_core::config::Config;
 use notectl_core::error::{internal_error, invalid_params};
+use notectl_outline::OutlineExtractor;
 use rayon::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -163,8 +164,9 @@ impl FileCapability {
         request: ReadFilesRequest,
     ) -> CapabilityResult<ReadFilesResponse> {
         let base_path = self.base_path.clone();
+        let config = Arc::clone(&self.config);
         tracing::debug!(file_count = request.file_paths.len(), "Reading files");
-        tokio::task::spawn_blocking(move || read_files_blocking(base_path, request))
+        tokio::task::spawn_blocking(move || read_files_blocking(base_path, config, request))
             .await
             .map_err(|e| internal_error(format!("File read panicked: {}", e)))?
     }
@@ -210,8 +212,61 @@ fn list_files_blocking(
     Ok((format_tree_visual(&root, 0), total_files, total_directories))
 }
 
+/// Filter out heading sections that match configured exclusion patterns.
+///
+/// Uses OutlineExtractor to identify section boundaries (heading + body up to
+/// the next heading of equal or shallower depth), then omits sections whose
+/// heading title matches any pattern in `config.search.exclude_headings`
+/// via case-insensitive substring matching.
+///
+/// When `exclude_headings` is empty, returns the original content unchanged.
+fn filter_excluded_sections(content: &str, config: &Config) -> String {
+    if config.search.exclude_headings.is_empty() {
+        return content.to_string();
+    }
+
+    let extractor = OutlineExtractor::new();
+    let sections = match extractor.extract_sections_from_content(content) {
+        Ok(s) => s,
+        Err(_) => return content.to_string(),
+    };
+
+    // If no real headings were found, return content as-is.
+    if sections.iter().all(|s| s.heading.title.is_empty()) {
+        return content.to_string();
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    for section in &sections {
+        if !section.heading.title.is_empty()
+            && config.search.should_exclude_heading(&section.heading.title)
+        {
+            continue;
+        }
+        // Reconstruct the section with its heading line and body
+        let heading_line = format!(
+            "{} {}",
+            "#".repeat(section.heading.level as usize),
+            section.heading.title
+        );
+        if !section.content.is_empty() {
+            parts.push(format!("{}\n{}", heading_line, section.content));
+        } else {
+            parts.push(heading_line);
+        }
+    }
+
+    // If all sections were excluded, return empty string
+    if parts.is_empty() {
+        return String::new();
+    }
+
+    parts.join("\n\n")
+}
+
 fn read_files_blocking(
     base_path: PathBuf,
+    config: Arc<Config>,
     request: ReadFilesRequest,
 ) -> CapabilityResult<ReadFilesResponse> {
     let continue_on_error = request.continue_on_error.unwrap_or(false);
@@ -249,7 +304,7 @@ fn read_files_blocking(
     let mut failure_count = 0;
 
     for file_path in &request.file_paths {
-        let result = read_single_file_blocking(&base_path, &canonical_base, file_path);
+        let result = read_single_file_blocking(&base_path, &canonical_base, file_path, &config);
         match result {
             Ok(content) => {
                 results.push(ReadFileResult {
@@ -290,6 +345,7 @@ fn read_single_file_blocking(
     base_path: &Path,
     canonical_base: &Path,
     file_path: &str,
+    config: &Config,
 ) -> CapabilityResult<String> {
     let canonical_full = base_path
         .join(PathBuf::from(file_path))
@@ -307,8 +363,9 @@ fn read_single_file_blocking(
             file_path
         )));
     }
-    std::fs::read_to_string(&canonical_full)
-        .map_err(|e| internal_error(format!("Failed to read file: {}", e)))
+    let content = std::fs::read_to_string(&canonical_full)
+        .map_err(|e| internal_error(format!("Failed to read file: {}", e)))?;
+    Ok(filter_excluded_sections(&content, config))
 }
 
 /// Operation struct for list_files (HTTP, CLI, and MCP)
@@ -953,5 +1010,145 @@ mod remote_command_tests {
             .args_to_json(&matches)
             .expect("args_to_json must not panic");
         assert!(json.get("file_paths").is_some());
+    }
+}
+
+#[cfg(test)]
+mod filter_excluded_sections_tests {
+    use super::*;
+    use notectl_core::config::SearchConfig;
+
+    fn config_with_exclude_headings(patterns: &[&str]) -> Config {
+        Config {
+            exclude_paths: Vec::new(),
+            daily_note_patterns: notectl_core::config::default_daily_note_patterns(),
+            search: SearchConfig {
+                exclude_headings: patterns.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// AC#1: One excluded section among several — only the matched section is omitted.
+    #[test]
+    fn one_excluded_section_among_several() {
+        let content = r#"## Intro
+Some intro text here.
+
+## Dataview Query
+date: today
+type: task
+
+## Notes
+Regular notes content."#;
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+
+        // Should contain Intro and Notes sections
+        assert!(filtered.contains("## Intro"));
+        assert!(filtered.contains("Some intro text here"));
+        assert!(filtered.contains("## Notes"));
+        assert!(filtered.contains("Regular notes content"));
+
+        // Should NOT contain the excluded section
+        assert!(!filtered.contains("## Dataview Query"));
+        assert!(!filtered.contains("date: today"));
+        assert!(!filtered.contains("type: task"));
+    }
+
+    /// AC#8: Excluded section at end of file (no following heading).
+    #[test]
+    fn excluded_section_at_eof() {
+        let content = r#"## Intro
+Some intro text here.
+
+## Dataview Query
+query block content"#;
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+
+        // Should contain Intro section
+        assert!(filtered.contains("## Intro"));
+        assert!(filtered.contains("Some intro text here"));
+
+        // Should NOT contain the excluded section at EOF
+        assert!(!filtered.contains("## Dataview Query"));
+        assert!(!filtered.contains("query block content"));
+    }
+
+    /// AC#8: Nested subheadings under an excluded parent heading are dropped.
+    #[test]
+    fn nested_subheadings_under_excluded_parent() {
+        let content = r#"## Intro
+Intro content here.
+
+## Dataview Query
+Query parent content.
+
+### Sub-Query 1
+Sub query content one.
+
+### Sub-Query 2
+Sub query content two.
+
+## Notes
+Notes content here."#;
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+
+        // Should contain Intro and Notes
+        assert!(filtered.contains("## Intro"));
+        assert!(filtered.contains("Intro content here"));
+        assert!(filtered.contains("## Notes"));
+        assert!(filtered.contains("Notes content here"));
+
+        // The entire Query section (including subheadings) should be dropped
+        assert!(!filtered.contains("## Dataview Query"));
+        assert!(!filtered.contains("Query parent content"));
+        assert!(!filtered.contains("### Sub-Query 1"));
+        assert!(!filtered.contains("Sub query content one"));
+        assert!(!filtered.contains("### Sub-Query 2"));
+        assert!(!filtered.contains("Sub query content two"));
+    }
+
+    /// AC#4: Empty exclude_headings returns content unchanged.
+    #[test]
+    fn empty_exclude_headings_returns_unchanged() {
+        let content = "## Section\nContent here.";
+        let config = Config::default();
+        let filtered = filter_excluded_sections(content, &config);
+        assert_eq!(filtered, content);
+    }
+
+    /// AC#5: File with no headings returned unchanged.
+    #[test]
+    fn no_headings_returns_unchanged() {
+        let content = "Just plain text\nwith multiple lines\nand no headings at all.";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        assert_eq!(filtered, content);
+    }
+
+    /// AC#5: No heading matches — content returned unchanged.
+    #[test]
+    fn no_heading_matches_returns_unchanged() {
+        let content = "## Real Section\nContent that should stay.";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        assert!(filtered.contains("## Real Section"));
+        assert!(filtered.contains("Content that should stay"));
+    }
+
+    /// Case-insensitive matching (AC#3).
+    #[test]
+    fn case_insensitive_matching() {
+        let content = "## DAILY TASKS\n- [ ] Task one\n\n## Notes\nSome notes.";
+        let config = config_with_exclude_headings(&["daily tasks"]);
+        let filtered = filter_excluded_sections(content, &config);
+
+        assert!(filtered.contains("## Notes"));
+        assert!(filtered.contains("Some notes"));
+        assert!(!filtered.contains("## DAILY TASKS"));
+        assert!(!filtered.contains("Task one"));
     }
 }

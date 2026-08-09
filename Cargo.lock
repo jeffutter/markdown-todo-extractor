@@ -1184,6 +1184,7 @@ dependencies = [
  "async-trait",
  "clap",
  "notectl-core",
+ "notectl-outline",
  "rayon",
  "rmcp",
  "schemars",

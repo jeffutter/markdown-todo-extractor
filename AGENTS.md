@@ -159,6 +159,7 @@ rrf_cosine_weight = 1.0                      # Cosine weight in RRF fusion
 max_results = 50                             # Max results per query
 merge_threshold = 30                         # Merge tiny sections below this token count
 rrf_recency_weight = 0.5                     # Recency boost weight when --enable-recency is set
+exclude_headings = ["Dataview Query"]          # Heading patterns to exclude (case-insensitive substring)
 cache_dir = ".notectl/search"                # Index cache directory
 ```
 

@@ -201,6 +201,20 @@ Examples:
   {bin} search{v} "project timeline"
   {bin} search{v} "deployment steps" --mode dense --limit 10
 
+### Heading Exclusion
+
+`exclude_headings` (in `[search]` config) accepts a list of heading patterns that
+are excluded from indexing AND from raw file/daily-note reads. Uses case-insensitive
+substring matching on heading titles. When a heading matches, its entire section
+(heading + body up to the next equal/shallower heading) is omitted.
+
+```toml
+[search]
+exclude_headings = ["Dataview Query", "Daily Tasks", "Completed"]
+```
+
+Also available via `NOTECTL_SEARCH_EXCLUDE_HEADINGS` (comma-separated).
+
 {path_conventions}## General notes
 
 - All output is JSON.
