@@ -775,6 +775,7 @@ mod tests {
         Config {
             exclude_paths: Vec::new(),
             daily_note_patterns: vec!["YYYY-MM-DD.md".to_string()],
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         }
     }
@@ -1457,6 +1458,7 @@ mod tests {
         let config = Config {
             exclude_paths: vec!["Template".to_string()],
             daily_note_patterns: vec!["YYYY-MM-DD.md".to_string()],
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         };
 

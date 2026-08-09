@@ -452,9 +452,7 @@ pub async fn build_index(base_path: &Path, config: &Config) -> Result<BuildSumma
         chunk_config.clone(),
     )?;
 
-    let chunker = Chunker::new(crate::chunker::ChunkerConfig::from_search_config(
-        &config.search,
-    ));
+    let chunker = Chunker::new(crate::chunker::ChunkerConfig::from_config(config));
 
     let mut embedder = EmbeddingConfig::from_search_config(&config.search).map(Embedder::new);
     let mut builder = IndexBuilder::new(&mut index, &chunker, embedder.as_mut());
@@ -475,19 +473,25 @@ mod tests {
         Config {
             exclude_paths: Vec::new(),
             daily_note_patterns: vec!["YYYY-MM-DD.md".to_string()],
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         }
     }
 
     fn test_chunker() -> Chunker {
-        let sc = SearchConfig {
-            max_seq_tokens: 128,
-            chunk_overlap_tokens: 16,
-            min_chunk_tokens: 8,
-            merge_threshold: 5,
-            ..Default::default()
+        let config = Config {
+            exclude_paths: Vec::new(),
+            daily_note_patterns: Vec::new(),
+            exclude_headings: Vec::new(),
+            search: SearchConfig {
+                max_seq_tokens: 128,
+                chunk_overlap_tokens: 16,
+                min_chunk_tokens: 8,
+                merge_threshold: 5,
+                ..Default::default()
+            },
         };
-        Chunker::new(crate::chunker::ChunkerConfig::from_search_config(&sc))
+        Chunker::new(crate::chunker::ChunkerConfig::from_config(&config))
     }
 
     /// Helper: run build_index in a test environment.
@@ -631,6 +635,7 @@ mod tests {
         let config = Config {
             exclude_paths: vec!["Template".to_string()],
             daily_note_patterns: vec!["YYYY-MM-DD.md".to_string()],
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         };
 

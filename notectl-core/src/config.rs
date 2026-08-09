@@ -115,11 +115,6 @@ pub struct SearchConfig {
     #[serde(default = "default_merge_threshold")]
     pub merge_threshold: usize,
 
-    /// Heading patterns to exclude from indexing (case-insensitive substring match).
-    /// Useful for skipping Dataview queries, template blocks, etc.
-    #[serde(default)]
-    pub exclude_headings: Vec<String>,
-
     /// Default recency weight applied post-RRF fusion when a search request
     /// opts in to recency boosting (default 0.5). Recency boosting itself is
     /// off by default; callers enable it per-request.
@@ -141,15 +136,6 @@ impl SearchConfig {
             base_path.join(&self.cache_dir)
         }
     }
-
-    /// Check if a heading title matches any exclusion pattern (case-insensitive substring).
-    pub fn should_exclude_heading(&self, title: &str) -> bool {
-        let lower = title.to_lowercase();
-        self.exclude_headings.iter().any(|pattern| {
-            let lp = pattern.to_lowercase();
-            lower.contains(&lp)
-        })
-    }
 }
 
 impl Default for SearchConfig {
@@ -169,7 +155,6 @@ impl Default for SearchConfig {
             cache_dir: default_cache_dir(),
             max_results: default_max_results(),
             merge_threshold: default_merge_threshold(),
-            exclude_headings: Vec::new(),
             rrf_recency_weight: default_rrf_recency_weight(),
         }
     }
@@ -183,6 +168,12 @@ pub struct Config {
     #[serde(default = "default_daily_note_patterns")]
     pub daily_note_patterns: Vec<String>,
 
+    /// Heading patterns to exclude from search indexing and from raw
+    /// file/daily-note reads (case-insensitive substring match). Useful for
+    /// skipping Dataview queries, template blocks, etc.
+    #[serde(default)]
+    pub exclude_headings: Vec<String>,
+
     #[serde(default)]
     pub search: SearchConfig,
 }
@@ -192,6 +183,7 @@ impl Default for Config {
         Self {
             exclude_paths: Vec::new(),
             daily_note_patterns: default_daily_note_patterns(),
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         }
     }
@@ -215,7 +207,6 @@ struct PartialSearchConfig {
     cache_dir: Option<String>,
     max_results: Option<usize>,
     merge_threshold: Option<usize>,
-    exclude_headings: Option<Vec<String>>,
     rrf_recency_weight: Option<f64>,
 }
 
@@ -223,6 +214,7 @@ struct PartialSearchConfig {
 struct PartialConfig {
     exclude_paths: Option<Vec<String>>,
     daily_note_patterns: Option<Vec<String>>,
+    exclude_headings: Option<Vec<String>>,
     search: Option<PartialSearchConfig>,
 }
 
@@ -258,6 +250,10 @@ impl Config {
 
         if let Some(ref patterns) = partial.daily_note_patterns {
             self.daily_note_patterns.extend(patterns.clone());
+        }
+
+        if let Some(ref headings) = partial.exclude_headings {
+            self.exclude_headings.extend(headings.clone());
         }
 
         if let Some(ref s) = partial.search {
@@ -302,9 +298,6 @@ impl Config {
             }
             if let Some(v) = s.merge_threshold {
                 self.search.merge_threshold = v;
-            }
-            if let Some(ref headings) = s.exclude_headings {
-                self.search.exclude_headings.extend(headings.clone());
             }
             if let Some(v) = s.rrf_recency_weight {
                 self.search.rrf_recency_weight = v;
@@ -358,6 +351,7 @@ impl Config {
     /// Merge configuration from environment variables
     /// NOTECTL_EXCLUDE_PATHS: comma-separated list of exclusion patterns
     /// NOTECTL_DAILY_NOTE_PATTERNS: comma-separated list of daily note patterns
+    /// NOTECTL_EXCLUDE_HEADINGS: comma-separated list of heading exclusion patterns
     /// NOTECTL_SEARCH_CACHE_DIR: search cache directory
     /// NOTECTL_SEARCH_EMBEDDING_DIM: embedding dimension
     /// NOTECTL_SEARCH_MAX_SEQ_TOKENS: maximum sequence tokens
@@ -374,6 +368,16 @@ impl Config {
 
             // Extend existing patterns with env var patterns
             self.daily_note_patterns.extend(env_daily_patterns);
+        }
+
+        // Merge excluded headings from environment variable (comma-separated)
+        if let Ok(v) = std::env::var("NOTECTL_EXCLUDE_HEADINGS") {
+            let patterns: Vec<String> = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            self.exclude_headings.extend(patterns);
         }
 
         // Merge search configuration from environment variables
@@ -467,16 +471,6 @@ impl Config {
             self.search.max_results = val;
         }
 
-        // Merge excluded headings from environment variable (comma-separated)
-        if let Ok(v) = std::env::var("NOTECTL_SEARCH_EXCLUDE_HEADINGS") {
-            let patterns: Vec<String> = v
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            self.search.exclude_headings.extend(patterns);
-        }
-
         if let Ok(v) = std::env::var("NOTECTL_SEARCH_RRF_RECENCY_WEIGHT")
             && let Ok(val) = v.parse::<f64>()
         {
@@ -519,6 +513,15 @@ impl Config {
 
         false
     }
+
+    /// Check if a heading title matches any exclusion pattern (case-insensitive substring).
+    pub fn should_exclude_heading(&self, title: &str) -> bool {
+        let lower = title.to_lowercase();
+        self.exclude_headings.iter().any(|pattern| {
+            let lp = pattern.to_lowercase();
+            lower.contains(&lp)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -541,6 +544,7 @@ mod tests {
         let config = Config {
             exclude_paths: vec!["Template".to_string(), "Recipes".to_string()],
             daily_note_patterns: default_daily_note_patterns(),
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         };
 
@@ -554,6 +558,7 @@ mod tests {
         let config = Config {
             exclude_paths: vec!["**/Template/**".to_string(), "**/Recipes/**".to_string()],
             daily_note_patterns: default_daily_note_patterns(),
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         };
 
@@ -584,6 +589,7 @@ mod tests {
         let mut config = Config {
             exclude_paths: vec!["Template".to_string()],
             daily_note_patterns: default_daily_note_patterns(),
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         };
 
@@ -773,7 +779,7 @@ cache_dir = "/tmp/search-cache"
 
     #[test]
     fn test_should_exclude_heading() {
-        let config = SearchConfig {
+        let config = Config {
             exclude_headings: vec!["Query".to_string(), "daily tasks".to_string()],
             ..Default::default()
         };
@@ -795,36 +801,18 @@ cache_dir = "/tmp/search-cache"
     fn test_exclude_headings_env_var() {
         let _guard = ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
-            std::env::set_var(
-                "NOTECTL_SEARCH_EXCLUDE_HEADINGS",
-                "Query, Daily Tasks, Template",
-            );
+            std::env::set_var("NOTECTL_EXCLUDE_HEADINGS", "Query, Daily Tasks, Template");
         }
 
         let mut config = Config::default();
-        config.merge_search_from_env();
+        config.merge_from_env();
 
-        assert!(
-            config
-                .search
-                .exclude_headings
-                .contains(&"Query".to_string())
-        );
-        assert!(
-            config
-                .search
-                .exclude_headings
-                .contains(&"Daily Tasks".to_string())
-        );
-        assert!(
-            config
-                .search
-                .exclude_headings
-                .contains(&"Template".to_string())
-        );
+        assert!(config.exclude_headings.contains(&"Query".to_string()));
+        assert!(config.exclude_headings.contains(&"Daily Tasks".to_string()));
+        assert!(config.exclude_headings.contains(&"Template".to_string()));
 
         unsafe {
-            std::env::remove_var("NOTECTL_SEARCH_EXCLUDE_HEADINGS");
+            std::env::remove_var("NOTECTL_EXCLUDE_HEADINGS");
         }
     }
 
@@ -872,6 +860,7 @@ cache_dir = "/tmp/search-cache"
         let mut config = Config {
             exclude_paths: vec!["Template".to_string()],
             daily_note_patterns: default_daily_note_patterns(),
+            exclude_headings: Vec::new(),
             search: SearchConfig {
                 model_id: "default/model".to_string(),
                 embedding_dim: 1024,

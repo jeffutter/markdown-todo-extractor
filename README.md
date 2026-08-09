@@ -372,6 +372,22 @@ export NOTECTL_EXCLUDE_PATHS="Template,Recipes,**/Archive/**"
 
 Both sources are merged; patterns support substring matching and standard globs.
 
+### Heading Exclusion
+
+Omit heading sections from search indexing and from raw file/daily-note reads
+(case-insensitive substring match on heading titles). When a heading matches,
+its entire section (heading + body up to the next equal/shallower heading) is
+omitted:
+
+```toml
+# .notectl.toml
+exclude_headings = ["Dataview Query", "Daily Tasks", "Completed"]
+```
+
+```bash
+export NOTECTL_EXCLUDE_HEADINGS="Dataview Query,Daily Tasks,Completed"
+```
+
 ### Search Configuration
 
 Search behavior can be tuned via `.notectl.toml`:
@@ -391,7 +407,6 @@ rrf_cosine_weight = 1.0                      # Weight for cosine scores in RRF f
 max_results = 50                             # Maximum results returned per query
 merge_threshold = 30                         # Merge tiny sections below this token count
 rrf_recency_weight = 0.5                     # Recency boost weight when --enable-recency is set (post-RRF fusion)
-exclude_headings = ["Dataview Query"]          # Heading patterns to exclude from indexing and raw reads
 cache_dir = ".notectl/search"                # Index cache directory
 ```
 
@@ -412,11 +427,11 @@ All search config values can also be overridden via environment variables:
 | `NOTECTL_SEARCH_RRF_COSINE_WEIGHT` | `search.rrf_cosine_weight` |
 | `NOTECTL_SEARCH_RRF_RECENCY_WEIGHT` | `search.rrf_recency_weight` |
 | `NOTECTL_SEARCH_SPARSE_WEIGHTS`  | `search.sparse_weights` |
-| `NOTECTL_SEARCH_EXCLUDE_HEADINGS` | `search.exclude_headings` |
 | `NOTECTL_SEARCH_CACHE_DIR`       | `search.cache_dir`   |
 | `NOTECTL_SEARCH_MAX_RESULTS`     | `search.max_results` |
 
 ### Environment Variables
 
 - `NOTECTL_EXCLUDE_PATHS` - Comma-separated path exclusion patterns
+- `NOTECTL_EXCLUDE_HEADINGS` - Comma-separated heading exclusion patterns (applies to search indexing and raw file/daily-note reads)
 - `NOTECTL_DEFAULT_LIMIT` - Default task result limit (default: `50`)

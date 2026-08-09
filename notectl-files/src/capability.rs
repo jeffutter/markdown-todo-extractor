@@ -221,7 +221,7 @@ fn list_files_blocking(
 ///
 /// When `exclude_headings` is empty, returns the original content unchanged.
 fn filter_excluded_sections(content: &str, config: &Config) -> String {
-    if config.search.exclude_headings.is_empty() {
+    if config.exclude_headings.is_empty() {
         return content.to_string();
     }
 
@@ -240,7 +240,7 @@ fn filter_excluded_sections(content: &str, config: &Config) -> String {
     let mut excluded_ranges: Vec<(usize, usize)> = Vec::new();
     for section in &sections {
         if !section.heading.title.is_empty()
-            && config.search.should_exclude_heading(&section.heading.title)
+            && config.should_exclude_heading(&section.heading.title)
         {
             excluded_ranges.push((section.start_line, section.end_line));
         }
@@ -1026,10 +1026,8 @@ mod filter_excluded_sections_tests {
         Config {
             exclude_paths: Vec::new(),
             daily_note_patterns: notectl_core::config::default_daily_note_patterns(),
-            search: SearchConfig {
-                exclude_headings: patterns.iter().map(|s| s.to_string()).collect(),
-                ..Default::default()
-            },
+            exclude_headings: patterns.iter().map(|s| s.to_string()).collect(),
+            search: SearchConfig::default(),
         }
     }
 

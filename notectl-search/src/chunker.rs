@@ -195,14 +195,14 @@ impl Default for ChunkerConfig {
 }
 
 impl ChunkerConfig {
-    /// Build a ChunkerConfig from the authoritative SearchConfig.
-    pub fn from_search_config(sc: &notectl_core::config::SearchConfig) -> Self {
+    /// Build a ChunkerConfig from the authoritative Config.
+    pub fn from_config(config: &notectl_core::config::Config) -> Self {
         Self {
-            max_tokens: sc.max_seq_tokens,
-            overlap_tokens: sc.chunk_overlap_tokens,
-            min_chunk_size: sc.min_chunk_tokens,
-            merge_threshold: sc.merge_threshold,
-            exclude_headings: sc.exclude_headings.clone(),
+            max_tokens: config.search.max_seq_tokens,
+            overlap_tokens: config.search.chunk_overlap_tokens,
+            min_chunk_size: config.search.min_chunk_tokens,
+            merge_threshold: config.search.merge_threshold,
+            exclude_headings: config.exclude_headings.clone(),
         }
     }
 }
@@ -1082,19 +1082,23 @@ Charlie content goes here for testing.
     }
 
     #[test]
-    fn test_chunker_config_from_search_config() {
-        use notectl_core::config::SearchConfig;
+    fn test_chunker_config_from_config() {
+        use notectl_core::config::{Config, SearchConfig};
 
-        let sc = SearchConfig {
-            max_seq_tokens: 1024,
-            chunk_overlap_tokens: 128,
-            min_chunk_tokens: 64,
-            merge_threshold: 50,
+        let config = Config {
+            exclude_paths: Vec::new(),
+            daily_note_patterns: Vec::new(),
             exclude_headings: vec!["Dataview".to_string()],
-            ..Default::default()
+            search: SearchConfig {
+                max_seq_tokens: 1024,
+                chunk_overlap_tokens: 128,
+                min_chunk_tokens: 64,
+                merge_threshold: 50,
+                ..Default::default()
+            },
         };
 
-        let cc = ChunkerConfig::from_search_config(&sc);
+        let cc = ChunkerConfig::from_config(&config);
         assert_eq!(cc.max_tokens, 1024);
         assert_eq!(cc.overlap_tokens, 128);
         assert_eq!(cc.min_chunk_size, 64);

@@ -557,6 +557,7 @@ mod tests {
         Config {
             exclude_paths: Vec::new(),
             daily_note_patterns: vec!["YYYY-MM-DD.md".to_string()],
+            exclude_headings: Vec::new(),
             search: SearchConfig::default(),
         }
     }
@@ -581,9 +582,8 @@ mod tests {
             chunk_config,
         )
         .unwrap();
-        let chunker = crate::chunker::Chunker::new(
-            crate::chunker::ChunkerConfig::from_search_config(&config.search),
-        );
+        let chunker =
+            crate::chunker::Chunker::new(crate::chunker::ChunkerConfig::from_config(config));
         let mut builder = crate::index::IndexBuilder::new(&mut index, &chunker, None);
         builder.build(base, config).await.unwrap()
     }

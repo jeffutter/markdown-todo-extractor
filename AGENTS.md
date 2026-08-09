@@ -141,6 +141,22 @@ cargo run -- --mcp-stdio /path/to/vault
 - Excluded paths are skipped during directory traversal in `extract_tasks_from_dir`
 - No MCP parameter needed - this is a server-side configuration only
 
+### Heading Exclusion
+
+Omit heading sections matching configured patterns from search indexing and
+from raw `read_files`/`get_daily_note` reads (case-insensitive substring match
+on heading titles; the whole section — heading + body up to the next
+equal/shallower heading — is dropped):
+
+```toml
+# .notectl.toml
+exclude_headings = ["Dataview Query"]
+```
+
+```bash
+export NOTECTL_EXCLUDE_HEADINGS="Dataview Query"
+```
+
 ### Search Configuration
 
 The `[search]` section in `.notectl.toml` controls indexing and search behavior:
@@ -159,7 +175,6 @@ rrf_cosine_weight = 1.0                      # Cosine weight in RRF fusion
 max_results = 50                             # Max results per query
 merge_threshold = 30                         # Merge tiny sections below this token count
 rrf_recency_weight = 0.5                     # Recency boost weight when --enable-recency is set
-exclude_headings = ["Dataview Query"]          # Heading patterns to exclude (case-insensitive substring)
 cache_dir = ".notectl/search"                # Index cache directory
 ```
 
