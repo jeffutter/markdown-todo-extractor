@@ -223,12 +223,12 @@ impl OutlineExtractor {
         }
 
         let mut sections = Vec::new();
+        let total_lines = content.lines().count();
 
         for (idx, heading) in headings.iter().enumerate() {
             let start_line = heading.line_number;
 
             // Determine end line: next heading of same or higher level (smaller number)
-            let total_lines = content.lines().count();
             let end_line = headings
                 .iter()
                 .skip(idx + 1)
