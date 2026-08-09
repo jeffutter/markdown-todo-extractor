@@ -224,6 +224,7 @@ impl OutlineExtractor {
 
         let mut sections = Vec::new();
         let total_lines = content.lines().count();
+        let offsets = Self::build_line_offsets(content);
 
         for (idx, heading) in headings.iter().enumerate() {
             let start_line = heading.line_number;
@@ -237,7 +238,8 @@ impl OutlineExtractor {
                 .unwrap_or(total_lines);
 
             // Extract content preserving original line terminators.
-            let section_content = Self::extract_lines(content, start_line + 1, end_line + 1);
+            let section_content =
+                Self::extract_lines_with_offsets(content, &offsets, start_line + 1, end_line + 1);
 
             sections.push(Section {
                 heading: Heading {
@@ -278,6 +280,8 @@ impl OutlineExtractor {
 
         let total_lines = content.lines().count();
 
+        let offsets = Self::build_line_offsets(&content);
+
         for idx in matching_indices {
             let heading = &headings[idx];
             let start_line = heading.line_number;
@@ -300,7 +304,8 @@ impl OutlineExtractor {
             };
 
             // Extract content preserving original line terminators.
-            let section_content = Self::extract_lines(&content, start_line + 1, end_line + 1);
+            let section_content =
+                Self::extract_lines_with_offsets(&content, &offsets, start_line + 1, end_line + 1);
 
             sections.push(Section {
                 heading: Heading {
@@ -318,36 +323,53 @@ impl OutlineExtractor {
         Ok(sections)
     }
 
+    /// Build a table of byte-offsets for each line in the content.
+    /// Returns a vec where index `i` holds the byte offset of the start of
+    /// 0-indexed line `i`. Index 0 is always 0. Construction is O(n).
+    fn build_line_offsets(content: &str) -> Vec<usize> {
+        let mut offsets = vec![0];
+        for (i, b) in content.bytes().enumerate() {
+            if b == b'\n' {
+                offsets.push(i + 1);
+            }
+        }
+        offsets
+    }
+
     /// Extract content between two 1-indexed line numbers, preserving original
-    /// line terminators (CRLF, LF). Uses byte-offset slicing so untouched
-    /// content comes straight from the source bytes.
-    fn extract_lines(content: &str, start_1: usize, end_1: usize) -> String {
+    /// line terminators (CRLF, LF). Uses precomputed byte-offset table for
+    /// O(1) lookup instead of rescanning the content.
+    fn extract_lines_with_offsets(
+        content: &str,
+        offsets: &[usize],
+        start_1: usize,
+        end_1: usize,
+    ) -> String {
         if start_1 >= end_1 || start_1 < 1 {
             return String::new();
         }
-        let sb = Self::line_start_byte(content, start_1);
-        let eb = Self::line_start_byte(content, end_1);
+        // Convert 1-indexed lines to 0-indexed offsets
+        let start_0 = start_1 - 1;
+        let end_0 = end_1 - 1;
+
+        // Out-of-range start → empty
+        if start_0 >= offsets.len() {
+            return String::new();
+        }
+
+        let sb = offsets[start_0];
         if sb >= content.len() {
             return String::new();
         }
-        content[sb..eb.min(content.len())].to_string()
-    }
 
-    /// Find the byte offset where line `line_1` (1-indexed) starts.
-    fn line_start_byte(content: &str, line_1: usize) -> usize {
-        if line_1 == 1 {
-            return 0;
-        }
-        let mut count = 0;
-        for (i, b) in content.bytes().enumerate() {
-            if b == b'\n' {
-                count += 1;
-                if count == line_1 - 1 {
-                    return i + 1;
-                }
-            }
-        }
-        content.len()
+        // End offset: if within bounds use the offset table, otherwise clamp
+        let eb = if end_0 < offsets.len() {
+            offsets[end_0]
+        } else {
+            content.len()
+        };
+
+        content[sb..eb].to_string()
     }
 
     /// Search for headings matching a pattern across files in a directory
