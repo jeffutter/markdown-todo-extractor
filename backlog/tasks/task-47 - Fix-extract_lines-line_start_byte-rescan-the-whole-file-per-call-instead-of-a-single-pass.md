@@ -7,7 +7,7 @@ status: Done
 assignee:
   - '@ralph'
 created_date: '2026-08-09 16:38'
-updated_date: '2026-08-09 17:30'
+updated_date: '2026-08-09 17:32'
 labels:
   - review-followup
   - planned
@@ -558,3 +558,15 @@ EDGE CASES TO PRESERVE (verify with existing tests):
 - CRLF → byte-offset slicing preserves \r\n verbatim
 - Unicode multi-byte chars → char-based iteration ensures correct byte offsets
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implementation complete. Replaced extract_lines()/line_start_byte() with build_line_offsets() + extract_lines_with_offsets(). Precomputes byte-offset table once per content string (O(n)) instead of rescanning from offset 0 for each heading lookup (was O(H×n)). Updated both extract_sections_from_content and get_section. All 318 workspace tests pass, clippy clean.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Replaced O(H×n) per-heading file rescanning with single-pass byte-offset table in outline extractor. Added build_line_offsets() and extract_lines_with_offsets(), removed extract_lines/line_start_byte. Updated extract_sections_from_content and get_section. All 318 tests pass, clippy clean. Push blocked by upstream RustSec advisory DB corruption (duplicate RUSTSEC-2026-0244).
+<!-- SECTION:FINAL_SUMMARY:END -->
