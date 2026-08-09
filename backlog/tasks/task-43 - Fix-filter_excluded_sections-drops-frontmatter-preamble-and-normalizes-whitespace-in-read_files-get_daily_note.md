@@ -7,7 +7,7 @@ status: Done
 assignee:
   - '@ralph'
 created_date: '2026-08-09 14:50'
-updated_date: '2026-08-09 15:07'
+updated_date: '2026-08-09 15:15'
 labels:
   - review-followup
   - planned
@@ -176,6 +176,12 @@ nix develop -c cargo test --workspace  # verify daily-notes downstream callers s
 
 - `notectl-files/src/capability.rs` — rewrite `filter_excluded_sections()`, update/add tests
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reviewed post-completion: implementation is correct for LF content (all 24 unit tests pass, clippy clean, full workspace suite green — 341 tests). Found one follow-up defect: filter_excluded_sections() normalizes CRLF to LF for retained lines when a section is actually excluded (contradicts this task's own byte-for-byte goal for CRLF-saved vault files). Filed as TASK-44 (depends-on TASK-43), not fixed as a fixup since the correct repair (byte-offset-based splicing preserving original line terminators) is a real design change, not a mechanical one-liner.
+<!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
