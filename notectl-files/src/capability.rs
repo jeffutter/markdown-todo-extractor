@@ -214,10 +214,10 @@ fn list_files_blocking(
 
 /// Filter out heading sections that match configured exclusion patterns.
 ///
-/// Uses OutlineExtractor to identify section boundaries (heading + body up to
-/// the next heading of equal or shallower depth), then omits sections whose
-/// heading title matches any pattern in `config.search.exclude_headings`
-/// via case-insensitive substring matching.
+/// Uses OutlineExtractor to identify section boundaries, then removes lines
+/// belonging to excluded sections via line-range splicing. Untouched content
+/// comes straight from the source bytes — no reconstruction, no trimming,
+/// no whitespace normalization.
 ///
 /// When `exclude_headings` is empty, returns the original content unchanged.
 fn filter_excluded_sections(content: &str, config: &Config) -> String {
@@ -236,32 +236,47 @@ fn filter_excluded_sections(content: &str, config: &Config) -> String {
         return content.to_string();
     }
 
-    let mut parts: Vec<String> = Vec::new();
+    // Collect excluded line ranges (1-indexed, inclusive).
+    let mut excluded_ranges: Vec<(usize, usize)> = Vec::new();
     for section in &sections {
         if !section.heading.title.is_empty()
             && config.search.should_exclude_heading(&section.heading.title)
         {
-            continue;
-        }
-        // Reconstruct the section with its heading line and body
-        let heading_line = format!(
-            "{} {}",
-            "#".repeat(section.heading.level as usize),
-            section.heading.title
-        );
-        if !section.content.is_empty() {
-            parts.push(format!("{}\n{}", heading_line, section.content));
-        } else {
-            parts.push(heading_line);
+            excluded_ranges.push((section.start_line, section.end_line));
         }
     }
 
-    // If all sections were excluded, return empty string
-    if parts.is_empty() {
-        return String::new();
+    // If nothing was excluded, return original content verbatim.
+    if excluded_ranges.is_empty() {
+        return content.to_string();
     }
 
-    parts.join("\n\n")
+    // Split into raw lines (preserves line content without newline chars).
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Determine if original content ended with a newline.
+    let ends_with_newline = content.ends_with('\n');
+
+    // Build output by walking lines, skipping excluded ranges.
+    let mut result = Vec::with_capacity(lines.len());
+    for (line_idx, line) in lines.iter().enumerate() {
+        let line_num = line_idx + 1; // 1-indexed
+        let skip = excluded_ranges
+            .iter()
+            .any(|&(start, end)| line_num >= start && line_num <= end);
+        if !skip {
+            result.push(*line);
+        }
+    }
+
+    // Rejoin with "\n" and restore trailing newline if original had one.
+    // Only add trailing newline if there are remaining lines — don't invent one
+    // when all content was excluded.
+    let mut output = result.join("\n");
+    if !result.is_empty() && ends_with_newline {
+        output.push('\n');
+    }
+    output
 }
 
 fn read_files_blocking(
@@ -1029,18 +1044,60 @@ mod filter_excluded_sections_tests {
         }
     }
 
-    /// AC#1: One excluded section among several — only the matched section is omitted.
+    // ── Acceptance Criteria Tests ──────────────────────────────────────────
+
+    /// AC#1: YAML frontmatter preserved when no heading matches exclude_headings.
+    #[test]
+    fn frontmatter_preserved_when_no_heading_matches() {
+        let content = "---\ntags: [foo]\n---\n\n## Notes\nSome notes.\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        // Byte-for-byte identical since no heading matches
+        assert_eq!(filtered, content);
+    }
+
+    /// AC#2: Non-frontmatter preamble before first heading preserved unchanged.
+    #[test]
+    fn preamble_before_first_heading_preserved() {
+        let content =
+            "This is a leading paragraph.\n\nWith some blank lines.\n\n## Notes\nContent here.\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        assert_eq!(filtered, content);
+    }
+
+    /// AC#3: Irregular blank-line spacing preserved on retained sections.
+    #[test]
+    fn whitespace_preserved_on_retained_sections() {
+        let content = "## Intro\nHello.\n\n\n\n## Notes\n\nSome notes.\n\n\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        // Byte-for-byte identical — no headings match, so nothing changes
+        assert_eq!(filtered, content);
+    }
+
+    /// AC#4: When a section IS excluded, surrounding content preserved byte-for-byte.
+    /// The blank line before an excluded section belongs to preceding content,
+    /// not the excluded section itself — so it is retained.
+    #[test]
+    fn excluded_section_removed_rest_preserved_exactly() {
+        let content =
+            "## Intro\nIntro text.\n\n## Dataview Query\nQuery stuff.\n\n## Notes\nNotes text.\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+
+        // Lines 3-4 ("## Dataview Query", "Query stuff.") are removed.
+        // Line 2 (blank) and line 5 (blank) survive because they're outside the section range.
+        let expected = "## Intro\nIntro text.\n\n## Notes\nNotes text.\n";
+        assert_eq!(filtered, expected);
+    }
+
+    // ── Existing Regression Tests ─────────────────────────────────────────
+
+    /// One excluded section among several — only the matched section is omitted.
     #[test]
     fn one_excluded_section_among_several() {
-        let content = r#"## Intro
-Some intro text here.
-
-## Dataview Query
-date: today
-type: task
-
-## Notes
-Regular notes content."#;
+        let content = "## Intro\nSome intro text here.\n\n## Dataview Query\ndate: today\ntype: task\n\n## Notes\nRegular notes content.\n";
         let config = config_with_exclude_headings(&["Query"]);
         let filtered = filter_excluded_sections(content, &config);
 
@@ -1056,14 +1113,10 @@ Regular notes content."#;
         assert!(!filtered.contains("type: task"));
     }
 
-    /// AC#8: Excluded section at end of file (no following heading).
+    /// Excluded section at end of file (no following heading).
     #[test]
     fn excluded_section_at_eof() {
-        let content = r#"## Intro
-Some intro text here.
-
-## Dataview Query
-query block content"#;
+        let content = "## Intro\nSome intro text here.\n\n## Dataview Query\nquery block content\n";
         let config = config_with_exclude_headings(&["Query"]);
         let filtered = filter_excluded_sections(content, &config);
 
@@ -1076,23 +1129,10 @@ query block content"#;
         assert!(!filtered.contains("query block content"));
     }
 
-    /// AC#8: Nested subheadings under an excluded parent heading are dropped.
+    /// Nested subheadings under an excluded parent heading are dropped.
     #[test]
     fn nested_subheadings_under_excluded_parent() {
-        let content = r#"## Intro
-Intro content here.
-
-## Dataview Query
-Query parent content.
-
-### Sub-Query 1
-Sub query content one.
-
-### Sub-Query 2
-Sub query content two.
-
-## Notes
-Notes content here."#;
+        let content = "## Intro\nIntro content here.\n\n## Dataview Query\nQuery parent content.\n\n### Sub-Query 1\nSub query content one.\n\n### Sub-Query 2\nSub query content two.\n\n## Notes\nNotes content here.\n";
         let config = config_with_exclude_headings(&["Query"]);
         let filtered = filter_excluded_sections(content, &config);
 
@@ -1111,7 +1151,7 @@ Notes content here."#;
         assert!(!filtered.contains("Sub query content two"));
     }
 
-    /// AC#4: Empty exclude_headings returns content unchanged.
+    /// Empty exclude_headings returns content unchanged.
     #[test]
     fn empty_exclude_headings_returns_unchanged() {
         let content = "## Section\nContent here.";
@@ -1120,7 +1160,7 @@ Notes content here."#;
         assert_eq!(filtered, content);
     }
 
-    /// AC#5: File with no headings returned unchanged.
+    /// File with no headings returned unchanged.
     #[test]
     fn no_headings_returns_unchanged() {
         let content = "Just plain text\nwith multiple lines\nand no headings at all.";
@@ -1129,17 +1169,16 @@ Notes content here."#;
         assert_eq!(filtered, content);
     }
 
-    /// AC#5: No heading matches — content returned unchanged.
+    /// No heading matches — content returned unchanged (byte-for-byte).
     #[test]
     fn no_heading_matches_returns_unchanged() {
         let content = "## Real Section\nContent that should stay.";
         let config = config_with_exclude_headings(&["Query"]);
         let filtered = filter_excluded_sections(content, &config);
-        assert!(filtered.contains("## Real Section"));
-        assert!(filtered.contains("Content that should stay"));
+        assert_eq!(filtered, content);
     }
 
-    /// Case-insensitive matching (AC#3).
+    /// Case-insensitive matching.
     #[test]
     fn case_insensitive_matching() {
         let content = "## DAILY TASKS\n- [ ] Task one\n\n## Notes\nSome notes.";
@@ -1150,5 +1189,36 @@ Notes content here."#;
         assert!(filtered.contains("Some notes"));
         assert!(!filtered.contains("## DAILY TASKS"));
         assert!(!filtered.contains("Task one"));
+    }
+
+    /// When all lines are excluded, return empty string (no phantom trailing newline).
+    #[test]
+    fn all_lines_excluded_returns_empty() {
+        let content = "## Query Block\nquery content\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        // All lines belong to the excluded section → empty output,
+        // even though original ended with \n. We don't invent a newline from nothing.
+        assert_eq!(filtered, "");
+    }
+
+    /// Trailing newline preserved when some lines remain after exclusion.
+    #[test]
+    fn trailing_newline_preserved_with_remaining_content() {
+        let content = "## Intro\nHello.\n\n## Query Block\nquery content\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        // Original ended with \n, so output must too
+        assert!(filtered.ends_with('\n'));
+        assert_eq!(filtered, "## Intro\nHello.\n\n");
+    }
+
+    /// All sections excluded returns empty string.
+    #[test]
+    fn excluded_all_sections_returns_empty() {
+        let content = "## Dataview Query\nOnly query here.\n";
+        let config = config_with_exclude_headings(&["Query"]);
+        let filtered = filter_excluded_sections(content, &config);
+        assert_eq!(filtered, "");
     }
 }
