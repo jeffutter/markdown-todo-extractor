@@ -44,7 +44,7 @@ This is no different than other Rust projects.
 ```shell
 git clone https://github.com/jeffutter/notectl
 cd notectl
-cargo test
+cargo nextest run
 ```
 
 ### Useful Commands
@@ -64,7 +64,8 @@ cargo test
 - Run all tests:
 
   ```shell
-  cargo test --all-features --workspace
+  cargo nextest run --all-features --workspace
+  cargo test --doc --all-features --workspace  # nextest doesn't run doc-tests
   ```
 
 - Check to see if there are code formatting issues

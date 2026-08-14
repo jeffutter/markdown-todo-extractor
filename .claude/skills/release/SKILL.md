@@ -1,58 +1,43 @@
 ---
 name: release
-description: Use when releasing a new version of notectl — bumps version in Cargo.toml, updates Cargo.lock, commits, pushes, tags, and pushes the tag.
+description: Use when releasing a new version of notectl — runs cargo-release to bump the version, commit, tag, and push.
 ---
 
 # release
 
 Release a new version of notectl. Accepts one argument: `major`, `minor`, or `patch`.
 
+Version bumping, tagging, and pushing are handled by [cargo-release](https://github.com/crate-ci/cargo-release), configured via `release.toml` at the repo root:
+
+- `shared-version = true` — the workspace shares one version (`[workspace.package] version`, inherited by every member via `version.workspace = true`); cargo-release bumps it once for the whole workspace.
+- `publish = false` — this project ships prebuilt binaries via GitHub Releases / Nix, not crates.io, so `cargo publish` is skipped.
+- `pre-release-hook = ["cargo", "build", "--workspace"]` — build must succeed before anything is committed/tagged.
+- `tag-name = "v{{version}}"` and `pre-release-commit-message = "chore: bump version to {{version}}"` — match this repo's existing tag/commit conventions.
+
 ## Steps
 
-1. **Parse the current version** from `[workspace.package] version` in `Cargo.toml`.
+1. **Ensure a clean working tree.** cargo-release refuses to run with uncommitted changes — commit or stash first.
+
+2. **Dry run** (default; no `--execute` flag) so the version bump, commit, tag, and push can be reviewed before anything happens:
    ```bash
-   grep '^version' Cargo.toml   # e.g. version = "0.9.0"
+   cargo release <major|minor|patch>
    ```
 
-2. **Compute the next version** from the argument:
-   - `major` → increment first component, reset others to 0 (0.9.0 → 1.0.0)
-   - `minor` → increment second component, reset patch to 0 (0.9.0 → 0.10.0)
-   - `patch` → increment third component (0.9.0 → 0.9.1)
-
-3. **Update `Cargo.toml`** — change the single `version = "X.Y.Z"` line under `[workspace.package]`. All workspace members inherit it via `version.workspace = true`.
-
-4. **Regenerate `Cargo.lock`** and verify the build:
+3. **Execute for real** once the dry run looks right:
    ```bash
-   cargo update --workspace
-   cargo build --workspace
+   cargo release <major|minor|patch> --execute --no-confirm
    ```
-
-5. **Commit the version bump**:
-   ```bash
-   git add Cargo.toml Cargo.lock
-   git commit -m "Bump to vX.Y.Z"
-   ```
-
-6. **Push** the commit to origin:
-   ```bash
-   git push
-   ```
-
-7. **Create and push the tag**:
-   ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
+   This bumps the version across the workspace, runs `cargo build --workspace`, commits (`chore: bump version to X.Y.Z`), creates an annotated tag `vX.Y.Z`, and pushes both the commit and tag to `origin`.
 
 ## Preconditions
 
-- Working tree must be clean before starting (the version bump commit should contain only `Cargo.toml` and `Cargo.lock`). If there are uncommitted changes, commit or stash them first.
-- `cargo build --workspace` must succeed before tagging.
+- Working tree must be clean before starting.
+- `cargo build --workspace` (run automatically as the pre-release hook) must succeed before tagging.
 
 ## Example
 
 ```
-/release minor   # 0.9.0 → 0.10.0, tag v0.10.0
-/release patch   # 0.9.0 → 0.9.1,  tag v0.9.1
-/release major   # 0.9.0 → 1.0.0,  tag v1.0.0
+/release patch   # 0.12.1 -> 0.12.2, tag v0.12.2
+/release minor   # 0.12.1 -> 0.13.0, tag v0.13.0
+/release major   # 0.12.1 -> 1.0.0,  tag v1.0.0
 ```

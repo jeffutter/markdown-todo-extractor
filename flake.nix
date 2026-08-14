@@ -83,6 +83,7 @@
               packages = [
                 cargo-audit
                 cargo-nextest
+                cargo-release
                 cargo-watch
                 clang
                 lefthook
@@ -93,11 +94,12 @@
             // envVars
           );
 
-          # Lean CI shell: compiler toolchain only, no editor/dev-workflow tools,
-          # so CI jobs realize a smaller, unambiguous closure.
+          # Lean CI shell: compiler toolchain plus cargo-nextest, no editor/dev-workflow
+          # tools, so CI jobs realize a smaller, unambiguous closure.
           ci = mkShell (
             {
               packages = [
+                cargo-nextest
                 clang
                 rustToolchain
               ]

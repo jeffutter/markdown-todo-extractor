@@ -1,0 +1,12 @@
+# cargo-release config. See https://github.com/crate-ci/cargo-release
+#
+# This workspace shares a single version via `[workspace.package] version`
+# (all members set `version.workspace = true`), and is distributed as
+# prebuilt binaries via GitHub Releases / Nix — not published to crates.io.
+
+shared-version = true
+consolidate-commits = true
+publish = false
+tag-name = "v{{version}}"
+pre-release-commit-message = "chore: bump version to {{version}}"
+pre-release-hook = ["cargo", "build", "--workspace"]
